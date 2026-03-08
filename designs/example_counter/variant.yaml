@@ -1,0 +1,9 @@
+name: example_counter
+pdk: sky130A
+top_module: example_counter
+clock:
+  port: clk
+  mode: sweep
+  sweep_ns: [100, 50, 20, 10]
+sources:
+  - src/**/*.v

@@ -1,0 +1,14 @@
+project:
+  title: "ASIC Flow Template (TT-style viewer + research dashboards)"
+  author: "Kieran"
+  notes: "Drop any multi-file Verilog design under designs/<name>/src and set top_module in designs/<name>/variant.yaml"
+
+experiments:
+  - variant: designs/example_counter
+    enabled: true
+  - variant: designs/rns_crt
+    enabled: true
+  - variant: designs/rns_mrc
+    enabled: true
+  - variant: designs/rrns
+    enabled: false

@@ -1,0 +1,60 @@
+name: harden
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.mk.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install -r requirements.txt
+      - id: mk
+        run: |
+          echo "matrix=$(python tools/scripts/ttwrap.py matrix --out github)" >> $GITHUB_OUTPUT
+
+  harden_hosted:
+    needs: plan
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix).variant }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate TT submission (info.yaml + src/)
+        run: |
+          python tools/scripts/ttwrap.py gen-tt --variant ${{ matrix }} --clock_ns 101 --out tt_submission
+
+      - name: Harden (TT GDS Action) - Sky130
+        uses: TinyTapeout/tt-gds-action@tt10
+        with:
+          flow: openlane2
+          pdk: sky130
+
+      - name: Extract metrics to docs
+        run: |
+          RUN_OUT="docs/results/${{ matrix }}/hosted_101ns_${{ github.run_id }}"
+          mkdir -p "$RUN_OUT"
+          # tt-gds-action writes runs/ for openlane2; we keep extraction generic
+          # If you package your own exports, point extract_metrics.py to that folder.
+          python tools/scripts/extract_metrics.py . --out "$RUN_OUT" || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: harden-${{ matrix }}
+          path: docs/
+
+  viewer:
+    needs: harden_hosted
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - uses: TinyTapeout/tt-gds-action/viewer@tt10
