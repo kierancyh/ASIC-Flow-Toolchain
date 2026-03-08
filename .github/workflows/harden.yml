@@ -48,9 +48,9 @@ jobs:
       - name: Install system deps (LibreLane prerequisites)
         run: |
           sudo apt-get update
-          # verilator is REQUIRED (your current failure)
-          # others are lightweight utilities that commonly avoid follow-up failures
-          sudo apt-get install -y verilator make git bash coreutils findutils sed gawk
+          # verilator is used by some flows; we keep it even though we disable lint
+          # yosys is needed for synthesis and avoids "yosys not found" warnings
+          sudo apt-get install -y verilator yosys make git bash coreutils findutils sed gawk
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -89,18 +89,12 @@ jobs:
           OUT_DIR="docs/results/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${RUN_ID}"
           mkdir -p "$OUT_DIR"
 
-          # Save full run dir for provenance (can slim later)
           if [ -d "runs" ]; then
             cp -rv runs "$OUT_DIR/" || true
           fi
 
-          # Metrics tables
           python tools/scripts/extract_metrics.py . --out "$OUT_DIR" || true
-
-          # Static renders
           python tools/scripts/render_gds.py --run-root . --out "$OUT_DIR/renders" || true
-
-          # Dashboard
           python tools/scripts/build_dashboard.py --mode full || true
 
       - name: Upload docs artifact

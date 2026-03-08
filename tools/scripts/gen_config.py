@@ -15,29 +15,23 @@ def normpath(p: str) -> str:
 
 
 def resolve_path(variant_path: str, p: str) -> str:
-    """
-    If p is relative (e.g. ../_shared/...), resolve it relative to variant_path.
-    If p is already repo-relative (designs/_shared/...) or absolute, keep it.
-    """
     if not p:
         return p
     p = normpath(p)
 
-    if p.startswith("/") or (len(p) > 2 and p[1] == ":" and p[2] in ("/", "\\")):  # linux or windows abs
+    # absolute (linux or windows)
+    if p.startswith("/") or (len(p) > 2 and p[1] == ":" and p[2] in ("/", "\\")):
         return p
 
-    # Repo-relative already
-    if p.startswith("designs/") or p.startswith(".github/") or p.startswith("tools/") or p.startswith("docs/"):
+    # already repo-relative
+    if p.startswith(("designs/", ".github/", "tools/", "docs/")):
         return p
 
-    # Otherwise treat it as relative to the variant folder
+    # otherwise relative to variant folder
     return normpath(os.path.normpath(os.path.join(variant_path, p)))
 
 
 def map_safe_variant_to_path(safe: str) -> str:
-    """
-    Map designs_rns_crt -> designs/rns_crt by checking manifest.yaml.
-    """
     manifest = load_yaml("manifest.yaml")
     for exp in manifest.get("experiments", []):
         vp = exp.get("variant")
@@ -54,7 +48,6 @@ def main():
     ap.add_argument("--out", default="config.json")
     args = ap.parse_args()
 
-    # Accept either safe name or path
     if os.path.isdir(args.variant) and os.path.exists(os.path.join(args.variant, "variant.yaml")):
         variant_path = args.variant
     else:
@@ -84,7 +77,6 @@ def main():
     pnr_sdc = resolve_path(variant_path, pnr_sdc)
     signoff_sdc = resolve_path(variant_path, signoff_sdc)
 
-    # Optional floorplan overrides
     fp = vcfg.get("fp", {}) or {}
     core_util = fp.get("core_util", 10)
 
@@ -94,10 +86,17 @@ def main():
         "CLOCK_PORT": clk_port,
         "CLOCK_PERIOD": clk_ns,
         "FP_CORE_UTIL": core_util,
+
+        # Your known-good synth defaults:
         "SYNTH_STRATEGY": "AREA 3",
         "SYNTH_ABC_DFF": False,
+
         "PNR_SDC_FILE": pnr_sdc,
         "SIGNOFF_SDC_FILE": signoff_sdc,
+        "RUN_LINTER": False,                 # Classic flow variable (preferred)
+        "RUN_VERILATOR": False,              # deprecated alias (safe to include)
+        "QUIT_ON_LINTER_ERRORS": False,      # don’t fail even if lint runs somehow
+        "QUIT_ON_VERILATOR_ERRORS": False,   # deprecated alias
     }
 
     with open(args.out, "w", encoding="utf-8") as f:
