@@ -34,7 +34,6 @@ jobs:
         shell: bash
         run: |
           MATRIX_JSON="$(python tools/scripts/make_matrix.py)"
-          # Write JSON safely even if it contains spaces/quotes
           {
             echo "matrix<<EOF"
             echo "$MATRIX_JSON"
