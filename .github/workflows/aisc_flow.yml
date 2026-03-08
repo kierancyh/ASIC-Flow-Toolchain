@@ -5,10 +5,6 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
-      deploy_pages:
-        description: "Deploy GitHub Pages dashboard"
-        required: false
-        default: "false"
       matrix_cap:
         description: "Optional cap on number of sweep points"
         required: false
@@ -16,8 +12,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 env:
   PDK_NAME: sky130
@@ -32,7 +26,6 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.mk.outputs.matrix }}
-      deploy_pages: ${{ steps.flags.outputs.deploy_pages }}
     steps:
       - uses: actions/checkout@v4
 
@@ -45,23 +38,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install "volare==0.20.6" "markdown" "pandas" "pyyaml"
-
-      - name: Resolve flags
-        id: flags
-        shell: bash
-        run: |
-          DEPLOY=false
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.deploy_pages }}" = "true" ]; then
-            DEPLOY=true
-          fi
-          echo "deploy_pages=$DEPLOY" >> "$GITHUB_OUTPUT"
+          pip install "volare==0.20.6" "pandas" "pyyaml"
 
       - name: Build matrix from manifest
         id: mk
         shell: bash
         run: |
-          CAP="${{ inputs.matrix_cap }}"
+          CAP="${{ github.event.inputs.matrix_cap }}"
           MATRIX_JSON="$(MATRIX_CAP="${CAP}" python tools/scripts/make_matrix.py)"
           {
             echo 'matrix<<EOF'
@@ -90,7 +73,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install "volare==0.20.6" "markdown" "pandas" "pyyaml"
+          pip install "volare==0.20.6" "pandas" "pyyaml"
 
       - name: Cache Sky130 PDK
         uses: actions/cache@v4
@@ -157,7 +140,7 @@ jobs:
           set -euo pipefail
 
           RUN_ID="${{ github.run_id }}"
-          OUT_DIR="docs/results/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${RUN_ID}"
+          OUT_DIR="ci_out/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${RUN_ID}"
           mkdir -p "$OUT_DIR"
 
           if [ -d runs ]; then
@@ -187,7 +170,7 @@ jobs:
         if: always()
         shell: bash
         env:
-          OUT_DIR: docs/results/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${{ github.run_id }}
+          OUT_DIR: ci_out/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${{ github.run_id }}
         run: |
           mkdir -p "$OUT_DIR"
           {
@@ -215,14 +198,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: docs-${{ matrix.variant }}-${{ matrix.clock_ns }}
-          path: docs/
+          name: run-${{ matrix.variant }}-${{ matrix.clock_ns }}
+          path: ci_out/
 
       - name: Job Summary
         if: always()
         shell: bash
         env:
-          OUT_DIR: docs/results/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${{ github.run_id }}
+          OUT_DIR: ci_out/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${{ github.run_id }}
         run: |
           echo "## Run: ${{ matrix.variant }} @ ${{ matrix.clock_ns }} ns" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -240,49 +223,24 @@ jobs:
             echo "" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          echo "### Links" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Artifacts" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Artifact: \`docs-${{ matrix.variant }}-${{ matrix.clock_ns }}\`" >> "$GITHUB_STEP_SUMMARY"
-
+          echo "- Artifact: \`run-${{ matrix.variant }}-${{ matrix.clock_ns }}\`" >> "$GITHUB_STEP_SUMMARY"
           if [ -f "$OUT_DIR/viewer.html" ]; then
-            echo "- viewer.html: \`$OUT_DIR/viewer.html\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "- viewer.html included" >> "$GITHUB_STEP_SUMMARY"
           fi
           if [ -f "$OUT_DIR/metrics_raw.json" ]; then
-            echo "- metrics_raw.json: \`$OUT_DIR/metrics_raw.json\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "- metrics_raw.json included" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -d "$OUT_DIR/final/gds" ]; then
+            echo "- GDS included" >> "$GITHUB_STEP_SUMMARY"
           fi
           if [ -d "$OUT_DIR/renders" ]; then
-            echo "- renders/: \`$OUT_DIR/renders\`" >> "$GITHUB_STEP_SUMMARY"
-          fi
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-
-          if [ -f "$OUT_DIR/metrics.csv" ]; then
-            echo "### Key metrics" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "| metric | value |" >> "$GITHUB_STEP_SUMMARY"
-            echo "|---|---:|" >> "$GITHUB_STEP_SUMMARY"
-
-            while IFS=, read -r clock_ns setup_wns_ns setup_tns_ns hold_wns_ns hold_tns_ns core_area_um2 die_area_um2 instance_count utilization_pct power_total_W power_internal_W power_switching_W power_leakage_W power_source drc_errors lvs_errors antenna_violations ir_drop_worst_V power_fair_sta_rpt status; do
-              :
-            done < <(tail -n +2 "$OUT_DIR/metrics.csv")
-
-            echo "| clock_ns | ${clock_ns:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| setup_wns_ns | ${setup_wns_ns:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| setup_tns_ns | ${setup_tns_ns:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| hold_wns_ns | ${hold_wns_ns:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| hold_tns_ns | ${hold_tns_ns:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| core_area_um2 | ${core_area_um2:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| die_area_um2 | ${die_area_um2:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| instance_count | ${instance_count:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| utilization_pct | ${utilization_pct:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| power_total_W | ${power_total_W:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| drc_errors | ${drc_errors:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| lvs_errors | ${lvs_errors:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| antenna_violations | ${antenna_violations:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| status | ${status:-} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "- PNG renders included" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-  assemble-summary:
-    name: assemble-summary
+  compare-runs:
+    name: compare-runs
     needs: run-flow
     if: always()
     runs-on: ubuntu-24.04
@@ -298,63 +256,37 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install "markdown" "pandas" "pyyaml"
+          pip install "pandas" "pyyaml"
 
       - name: Download all per-run artifacts
         uses: actions/download-artifact@v4
         with:
           path: _collected
 
-      - name: Merge docs trees
-        shell: bash
+      - name: Build comparison summary
         run: |
-          mkdir -p docs
-          find _collected -type d -path '*/docs' | while read -r d; do
-            cp -r "$d"/. docs/ || true
-          done
+          python tools/scripts/compare_runs.py \
+            --artifacts-root _collected \
+            --summary-md _compare_summary.md \
+            --summary-csv _compare_summary.csv \
+            --best-json _best_run.json
 
-      - name: Build static dashboard
-        run: |
-          python tools/scripts/build_dashboard.py --mode full
-          touch docs/.nojekyll
-
-      - name: Upload assembled dashboard artifact
+      - name: Upload comparison artifact
         uses: actions/upload-artifact@v4
         with:
-          name: docs-dashboard
-          path: docs/
+          name: compare-summary
+          path: |
+            _compare_summary.md
+            _compare_summary.csv
+            _best_run.json
 
       - name: Workflow Summary
         shell: bash
         run: |
-          echo "# ASIC Flow Dashboard" >> "$GITHUB_STEP_SUMMARY"
+          echo "# ASIC Flow Comparison" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          if [ -f docs/summary.md ]; then
-            cat docs/summary.md >> "$GITHUB_STEP_SUMMARY"
+          if [ -f _compare_summary.md ]; then
+            cat _compare_summary.md >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "- No summary.md produced." >> "$GITHUB_STEP_SUMMARY"
+            echo "- No comparison summary produced." >> "$GITHUB_STEP_SUMMARY"
           fi
-
-  deploy-pages:
-    name: deploy-pages
-    needs: [plan, assemble-summary]
-    if: ${{ needs.plan.outputs.deploy_pages == 'true' }}
-    runs-on: ubuntu-24.04
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Download assembled dashboard
-        uses: actions/download-artifact@v4
-        with:
-          name: docs-dashboard
-          path: docs
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs
-
-      - name: Deploy Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
