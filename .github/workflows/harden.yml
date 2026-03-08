@@ -17,20 +17,14 @@ jobs:
       matrix: ${{ steps.mk.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
-
-      - name: Install python deps
-        run: |
+      - run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
       - id: mk
-        name: Build run matrix from manifest (syntax-safe output)
         shell: bash
         run: |
           MATRIX_JSON="$(python tools/scripts/make_matrix.py)"
@@ -47,70 +41,40 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.matrix) }}
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python (host)
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
-
-      - name: Install host python deps
-        run: |
+      - run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
-      - name: Install Sky130 PDK (Volare)
-        uses: TinyTapeout/volare-action@v2
+      - uses: TinyTapeout/volare-action@v2
         with:
           pdk_name: sky130
           pdk_version: 12df12e2e74145e31c5a13de02f9a1e176b56e67
           pdk_root: /home/runner/pdk
-
-      - name: Generate LibreLane config.json
-        run: |
-          python tools/scripts/gen_config.py \
-            --variant "${{ matrix.variant }}" \
-            --clock_ns "${{ matrix.clock_ns }}" \
-            --pdk-root "/home/runner/pdk" \
-            --out config.json
-
-      - name: Run LibreLane harden (docker: OpenLane2)
-        run: |
-          docker pull ghcr.io/efabless/openlane2:2.4.0.dev1
-          docker run --rm \
-            -v "${GITHUB_WORKSPACE}:/work" \
-            -v "/home/runner/pdk:/pdk" \
-            -w /work \
-            ghcr.io/efabless/openlane2:2.4.0.dev1 \
-            bash -lc "python -m librelane --pdk-root /pdk config.json"
-
-      - name: Collect artifacts into docs/
-        if: always()
+      - run: |
+          python tools/scripts/gen_config.py --variant "${{ matrix.variant }}" --clock_ns "${{ matrix.clock_ns }}" --pdk-root "/home/runner/pdk" --out config.json
+      - name: Run LibreLane harden
+        run: docker pull ghcr.io/efabless/openlane2:2.4.0.dev1
+      - run: docker run --rm -v "${GITHUB_WORKSPACE}:/work" -v "/home/runner/pdk:/pdk" -w /work ghcr.io/efabless/openlane2:2.4.0.dev1 bash -lc "python -m librelane --pdk-root /pdk config.json"
+      - if: always()
         run: |
           RUN_ID="${{ github.run_id }}"
           OUT_DIR="docs/results/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${RUN_ID}"
           mkdir -p "$OUT_DIR"
-
-          if [ -d "runs" ]; then
-            cp -rv runs "$OUT_DIR/" || true
-          fi
-
+          [ -d "runs" ] && cp -rv runs "$OUT_DIR/" || true
           python tools/scripts/extract_metrics.py . --out "$OUT_DIR" || true
           python tools/scripts/render_gds.py --run-root . --out "$OUT_DIR/renders" || true
           python tools/scripts/build_dashboard.py --mode full || true
-
-      - name: Upload docs artifact
-        if: always()
+      - if: always()
         uses: actions/upload-artifact@v4
         with:
           name: docs
           path: docs/
-
-      - name: Upload Pages artifact
-        if: always()
+      - if: always()
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs/
@@ -119,5 +83,4 @@ jobs:
     needs: harden
     runs-on: ubuntu-24.04
     steps:
-      - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v4
+      - uses: actions/deploy-pages@v4
