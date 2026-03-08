@@ -48,9 +48,8 @@ jobs:
       - name: Install system deps (LibreLane prerequisites)
         run: |
           sudo apt-get update
-          # verilator is used by some flows; we keep it even though we disable lint
-          # yosys is needed for synthesis and avoids "yosys not found" warnings
-          sudo apt-get install -y verilator yosys make git bash coreutils findutils sed gawk
+          # NOTE: DO NOT install apt yosys. LibreLane uses YoWASP yosys via pip.
+          sudo apt-get install -y verilator make git bash coreutils findutils sed gawk
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -62,6 +61,24 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          # Ensure YoWASP yosys exists (LibreLane typically brings it, but we assert it here)
+          python -c "import shutil; import sys; p=shutil.which('yowasp-yosys'); print('yowasp-yosys:', p); sys.exit(0 if p else 1)"
+
+      - name: Force YoWASP yosys shim (fix 'yosys -y' failure)
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/.bin"
+          cat > "$GITHUB_WORKSPACE/.bin/yosys" <<'EOF'
+          #!/usr/bin/env bash
+          exec yowasp-yosys "$@"
+          EOF
+          chmod +x "$GITHUB_WORKSPACE/.bin/yosys"
+          echo "$GITHUB_WORKSPACE/.bin" >> "$GITHUB_PATH"
+
+      - name: Debug tool resolution
+        run: |
+          echo "which yosys: $(which yosys)"
+          yosys -h | head -n 5 || true
+          echo "which yowasp-yosys: $(which yowasp-yosys)"
 
       - name: Install Sky130 PDK (Volare)
         uses: TinyTapeout/volare-action@v2
