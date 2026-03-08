@@ -15,8 +15,6 @@ env:
   PDK_VERSION: 12df12e2e74145e31c5a13de02f9a1e176b56e67
   PDK_ROOT: /home/runner/pdk
   OPENLANE2_IMAGE: ghcr.io/efabless/openlane2:2.4.0.dev1
-  # Optional: set MATRIX_CAP in repo Settings → Secrets and variables → Actions → Variables
-  # MATRIX_CAP: "3"
 
 jobs:
   plan:
@@ -41,24 +39,12 @@ jobs:
         name: Build matrix from manifest (safe output)
         shell: bash
         run: |
-          if [ -n "${MATRIX_CAP:-}" ]; then
-            echo "Using MATRIX_CAP=${MATRIX_CAP}"
-          fi
           MATRIX_JSON="$(MATRIX_CAP="${MATRIX_CAP:-}" python tools/scripts/make_matrix.py)"
           {
             echo "matrix<<EOF"
             echo "$MATRIX_JSON"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
-
-      - name: Summary (planned sweep)
-        shell: bash
-        run: |
-          echo "## Planned runs" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "\`\`\`json" >> "$GITHUB_STEP_SUMMARY"
-          echo '${{ steps.mk.outputs.matrix }}' >> "$GITHUB_STEP_SUMMARY"
-          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
 
   harden:
     needs: plan
@@ -115,6 +101,30 @@ jobs:
             "${OPENLANE2_IMAGE}" \
             bash -lc "python3 -m openlane --pdk-root /pdk config.json"
 
+      - name: Find run directory (robust)
+        id: findrun
+        shell: bash
+        run: |
+          set -e
+
+          if [ ! -d runs ]; then
+            echo "No runs/ directory produced."
+            echo "run_dir=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Prefer newest folder containing final/metrics.json
+          RUN_DIR="$(find runs -type f -path '*/final/metrics.json' -printf '%T@ %h\n' 2>/dev/null | sort -nr | head -n 1 | cut -d' ' -f2-)"
+          if [ -z "$RUN_DIR" ]; then
+            echo "No runs/**/final/metrics.json found. Dumping run tree:"
+            find runs -maxdepth 3 -type d || true
+            echo "run_dir=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Detected RUN_DIR=$RUN_DIR"
+          echo "run_dir=$RUN_DIR" >> "$GITHUB_OUTPUT"
+
       - name: Collect outputs into docs/
         if: always()
         shell: bash
@@ -123,23 +133,33 @@ jobs:
           OUT_DIR="docs/results/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${RUN_ID}"
           mkdir -p "$OUT_DIR"
 
-          # Copy full run folder for provenance (you can slim later)
+          # Copy all runs for provenance
           if [ -d "runs" ]; then
             cp -rv runs "$OUT_DIR/" || true
           fi
 
-          # Convert metrics.json + power.rpt into tables/files
-          python tools/scripts/extract_metrics.py . --out "$OUT_DIR" || true
+          RUN_DIR="${{ steps.findrun.outputs.run_dir }}"
+          echo "RUN_DIR used: ${RUN_DIR:-<none>}" > "$OUT_DIR/run_dir_used.txt"
 
-          # KLayout 2D renders (PNGs)
-          python tools/scripts/render_gds.py --run-root . --out "$OUT_DIR/renders" || true
+          if [ -n "$RUN_DIR" ]; then
+            # Primary extractor (your script)
+            python tools/scripts/extract_metrics.py "$RUN_DIR" --out "$OUT_DIR" || true
 
-          # Create a small per-run HTML "viewer" page (static)
+            # Render from the same run dir for consistency
+            python tools/scripts/render_gds.py --run-root "$RUN_DIR" --out "$OUT_DIR/renders" || true
+
+            # Always stash raw metrics.json next to tables for debugging
+            if [ -f "$RUN_DIR/final/metrics.json" ]; then
+              cp -v "$RUN_DIR/final/metrics.json" "$OUT_DIR/metrics_raw.json" || true
+            fi
+          else
+            echo "No RUN_DIR found; skipping metrics/render extraction" > "$OUT_DIR/provenance.txt"
+          fi
+
+          # Create per-run viewer html
           python - <<'PY'
           import os, glob
           out_dir = os.environ.get("OUT_DIR", "")
-          if not out_dir:
-              raise SystemExit(0)
           renders = sorted(glob.glob(os.path.join(out_dir, "renders", "*.png")))
           html_path = os.path.join(out_dir, "viewer.html")
           with open(html_path, "w", encoding="utf-8") as f:
@@ -148,16 +168,14 @@ jobs:
                       "<title>Layout Renders</title>"
                       "<style>body{font-family:system-ui;margin:24px;max-width:1100px}"
                       "img{max-width:100%;border:1px solid #ddd;margin:12px 0}</style>"
-                      "</head><body>")
-              f.write("<h1>Layout Renders</h1>")
+                      "</head><body><h1>Layout Renders</h1>")
               if not renders:
-                  f.write("<p>No PNG renders found (flow may have failed early).</p>")
+                  f.write("<p>No PNG renders found.</p>")
               for p in renders:
                   rel = os.path.relpath(p, out_dir).replace("\\","/")
                   f.write(f"<div><img src='{rel}' alt='{rel}'/></div>")
-              f.write("<p>For interactive inspection / 3D view, download the GDS from the artifact and open in KLayout.</p>")
+              f.write("<p>For interactive / 3D view, download the GDS from the artifact and open in KLayout.</p>")
               f.write("</body></html>")
-          print("Wrote", html_path)
           PY
         env:
           OUT_DIR: docs/results/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${{ github.run_id }}
@@ -169,7 +187,7 @@ jobs:
           name: docs-${{ matrix.variant }}-${{ matrix.clock_ns }}
           path: docs/
 
-      - name: Job Summary (per-run metrics + links)
+      - name: Job Summary (per-run metrics + extra fields)
         if: always()
         shell: bash
         run: |
@@ -179,18 +197,63 @@ jobs:
           echo "## Run: ${{ matrix.variant }} @ ${{ matrix.clock_ns }} ns" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
-          if [ -f "$OUT_DIR/metrics.md" ]; then
-            cat "$OUT_DIR/metrics.md" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "- No metrics.md found (flow may have failed early)" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$OUT_DIR/run_dir_used.txt" ]; then
+            echo "**$(cat "$OUT_DIR/run_dir_used.txt")**" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Artifact: **docs-${{ matrix.variant }}-${{ matrix.clock_ns }}** (contains runs/, metrics, renders, viewer.html, and GDS if generated)" >> "$GITHUB_STEP_SUMMARY"
-          if [ -f "$OUT_DIR/viewer.html" ]; then
-            echo "- Per-run viewer page (in Pages after deploy): \`$OUT_DIR/viewer.html\`" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$OUT_DIR/metrics.md" ]; then
+            cat "$OUT_DIR/metrics.md" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- No metrics.md produced (flow may have failed before final/metrics.json)" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
           fi
-          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          # Extra metrics table from metrics_raw.json (best-effort)
+          if [ -f "$OUT_DIR/metrics_raw.json" ]; then
+            python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+
+          p = Path("docs/results")  # not used; we use env OUT_DIR
+          out_dir = Path("${OUT_DIR}")
+          raw = json.loads((out_dir / "metrics_raw.json").read_text(encoding="utf-8"))
+
+          # Try several common OpenLane/OpenROAD metric keys (best effort)
+          keys = [
+              "timing__setup__ws", "timing__setup__tns",
+              "timing__hold__ws", "timing__hold__tns",
+              "design__instance_count",
+              "design__area", "design__die__area", "design__core__area",
+              "design__core__utilization",
+              "ir__voltage_drop__worst", "ir__voltage_drop__avg",
+              "drc__violations", "lvs__violations", "antenna__violations",
+              "power__total", "power__internal", "power__switching", "power__leakage",
+              "runtime__total",
+          ]
+
+          def get_any(k):
+              return raw.get(k, None)
+
+          rows = []
+          for k in keys:
+              v = get_any(k)
+              if v is not None:
+                  rows.append((k, v))
+
+          if rows:
+              print("### Extra metrics (raw metrics.json)")
+              print("")
+              print("| key | value |")
+              print("|---|---:|")
+              for k, v in rows:
+                  print(f"| `{k}` | {v} |")
+              print("")
+          PY
+          fi
+
+          echo "- Artifact: docs-${{ matrix.variant }}-${{ matrix.clock_ns }}" >> "$GITHUB_STEP_SUMMARY"
 
   assemble_pages:
     needs: harden
@@ -225,23 +288,25 @@ jobs:
           python tools/scripts/build_dashboard.py --mode full || true
           touch docs/.nojekyll
 
-          # Ensure there is an HTML landing page
-          if [ -f tools/scripts/md_to_html.py ] && [ -f docs/index.md ]; then
-            python tools/scripts/md_to_html.py docs/index.md docs/index.html || true
-          fi
-
-      - name: Global Job Summary (dashboard)
-        shell: bash
-        run: |
-          echo "## Dashboard (this run)" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
+          # Ensure landing page exists
           if [ -f docs/index.md ]; then
-            cat docs/index.md >> "$GITHUB_STEP_SUMMARY"
+            python - <<'PY'
+          from pathlib import Path
+          import markdown
+          md = Path("docs/index.md").read_text(encoding="utf-8")
+          html_body = markdown.markdown(md, extensions=["tables","fenced_code"])
+          Path("docs/index.html").write_text(
+              "<!doctype html><html><head><meta charset='utf-8'>"
+              "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+              "<title>ASIC Flow Dashboard</title></head>"
+              "<body style='font-family:system-ui;margin:24px;max-width:1100px'>"
+              f"{html_body}</body></html>",
+              encoding="utf-8"
+          )
+          PY
           else
-            echo "- No docs/index.md generated yet." >> "$GITHUB_STEP_SUMMARY"
+            echo "<!doctype html><html><body><h1>No dashboard yet</h1></body></html>" > docs/index.html
           fi
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Artifacts: one per sweep point (download to get GDS/DEF/LEF/reports if generated)." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Pages artifact (single)
         uses: actions/upload-pages-artifact@v3
