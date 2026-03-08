@@ -5,6 +5,11 @@ on:
   push:
     branches: [ main ]
 
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
 jobs:
   plan:
     runs-on: ubuntu-24.04
@@ -13,7 +18,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
@@ -21,51 +27,85 @@ jobs:
         run: pip install -r requirements.txt
 
       - id: mk
-        name: Build matrix JSON
+        name: Build run matrix from manifest
         run: |
-          echo "matrix=$(python tools/scripts/ttwrap.py matrix --out github)" >> "$GITHUB_OUTPUT"
+          echo "matrix=$(python tools/scripts/make_matrix.py)" >> "$GITHUB_OUTPUT"
 
-  harden_hosted:
+  harden:
     needs: plan
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
-      # IMPORTANT: matrix must be an OBJECT like {"variant":[...]}
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Generate TT submission (info.yaml + src/)
-        run: |
-          python tools/scripts/ttwrap.py gen-tt \
-            --variant "${{ matrix.variant }}" \
-            --clock_ns 101 \
-            --out tt_submission
-
-      - name: Harden (TT GDS Action) - Sky130
-        uses: TinyTapeout/tt-gds-action@tt10
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          flow: openlane2
-          pdk: sky130
+          python-version: "3.11"
 
-      - name: Extract metrics to docs
+      - name: Install python deps
+        run: pip install -r requirements.txt
+
+      - name: Install Sky130 PDK (Volare)
+        uses: TinyTapeout/volare-action@v2
+        with:
+          pdk_name: sky130
+          pdk_version: 12df12e2e74145e31c5a13de02f9a1e176b56e67
+          pdk_root: /home/runner/pdk
+
+      - name: Generate LibreLane config.json
         run: |
-          RUN_OUT="docs/results/${{ matrix.variant }}/hosted_101ns_${{ github.run_id }}"
-          mkdir -p "$RUN_OUT"
-          python tools/scripts/extract_metrics.py . --out "$RUN_OUT" || true
+          python tools/scripts/gen_config.py \
+            --variant "${{ matrix.variant }}" \
+            --clock_ns "${{ matrix.clock_ns }}" \
+            --pdk-root "/home/runner/pdk" \
+            --out config.json
 
-      - name: Upload docs as artifact
+      - name: Run LibreLane harden
+        run: |
+          python -m librelane --pdk-root "/home/runner/pdk" config.json
+
+      - name: Collect artifacts into docs/
+        if: always()
+        run: |
+          RUN_ID="${{ github.run_id }}"
+          OUT_DIR="docs/results/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${RUN_ID}"
+          mkdir -p "$OUT_DIR"
+
+          # Save full run dir for provenance (can slim later)
+          if [ -d "runs" ]; then
+            cp -rv runs "$OUT_DIR/" || true
+          fi
+
+          # Metrics tables
+          python tools/scripts/extract_metrics.py . --out "$OUT_DIR" || true
+
+          # Static renders
+          python tools/scripts/render_gds.py --run-root . --out "$OUT_DIR/renders" || true
+
+          # Dashboard
+          python tools/scripts/build_dashboard.py --mode full || true
+
+      - name: Upload docs artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: docs-${{ matrix.variant }}
+          name: docs
           path: docs/
 
-  viewer:
-    needs: harden_hosted
+      - name: Upload Pages artifact
+        if: always()
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/
+
+  deploy_pages:
+    needs: harden
     runs-on: ubuntu-24.04
-    permissions:
-      pages: write
-      id-token: write
     steps:
-      - uses: TinyTapeout/tt-gds-action/viewer@tt10
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
