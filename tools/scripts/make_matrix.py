@@ -1,11 +1,10 @@
-import argparse
 import json
 import os
 import yaml
 
 
-def load_yaml(path: str):
-    with open(path, "r", encoding="utf-8") as f:
+def load_yaml(p: str):
+    with open(p, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
@@ -14,9 +13,7 @@ def get_sweep_ns(vcfg: dict) -> list[float]:
 
     sweep = None
     if isinstance(clock, dict):
-        # Your current schema:
         sweep = clock.get("sweep_ns")
-        # Backwards/alternate schema:
         if sweep is None:
             sweep = (clock.get("search") or {}).get("sweep_ns")
 
@@ -39,9 +36,13 @@ def get_sweep_ns(vcfg: dict) -> list[float]:
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--cap", type=int, default=3, help="Max sweep points per variant (CI-safe)")
-    args = ap.parse_args()
+    cap_env = os.getenv("MATRIX_CAP", "").strip()
+    cap = None
+    if cap_env:
+        try:
+            cap = int(cap_env)
+        except Exception:
+            cap = None
 
     manifest = load_yaml("manifest.yaml")
     include = []
@@ -50,16 +51,16 @@ def main():
         if not exp.get("enabled", False):
             continue
 
-        variant_path = exp["variant"]  # e.g. designs/rns_crt
+        variant_path = exp["variant"]
         vcfg = load_yaml(os.path.join(variant_path, "variant.yaml"))
 
         sweep_ns = get_sweep_ns(vcfg)
-        sweep_ns = sweep_ns[: max(1, args.cap)]
+        if cap is not None and cap > 0:
+            sweep_ns = sweep_ns[:cap]
 
         for ns in sweep_ns:
             include.append(
                 {
-                    # Safe identifier used in workflow + docs path
                     "variant": variant_path.replace("/", "_"),
                     "variant_path": variant_path,
                     "clock_ns": float(ns),

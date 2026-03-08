@@ -10,6 +10,14 @@ permissions:
   pages: write
   id-token: write
 
+env:
+  PDK_NAME: sky130
+  PDK_VERSION: 12df12e2e74145e31c5a13de02f9a1e176b56e67
+  PDK_ROOT: /home/runner/pdk
+  OPENLANE2_IMAGE: ghcr.io/efabless/openlane2:2.4.0.dev1
+  # Optional: set MATRIX_CAP in repo Settings → Secrets and variables → Actions → Variables
+  # MATRIX_CAP: "3"
+
 jobs:
   plan:
     runs-on: ubuntu-24.04
@@ -23,19 +31,34 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - run: |
+      - name: Install python deps
+        run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install "volare==0.20.6" "markdown"
 
       - id: mk
+        name: Build matrix from manifest (safe output)
         shell: bash
         run: |
-          MATRIX_JSON="$(python tools/scripts/make_matrix.py)"
+          if [ -n "${MATRIX_CAP:-}" ]; then
+            echo "Using MATRIX_CAP=${MATRIX_CAP}"
+          fi
+          MATRIX_JSON="$(MATRIX_CAP="${MATRIX_CAP:-}" python tools/scripts/make_matrix.py)"
           {
             echo "matrix<<EOF"
             echo "$MATRIX_JSON"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Summary (planned sweep)
+        shell: bash
+        run: |
+          echo "## Planned runs" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`json" >> "$GITHUB_STEP_SUMMARY"
+          echo '${{ steps.mk.outputs.matrix }}' >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
 
   harden:
     needs: plan
@@ -53,46 +76,121 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - run: |
+      - name: Install python deps + volare
+        run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install "volare==0.20.6"
+          pip install "volare==0.20.6" "markdown"
 
       - name: Cache Sky130 PDK
         uses: actions/cache@v4
         with:
-          path: /home/runner/pdk
-          key: ${{ runner.os }}-pdk-sky130-12df12e2e74145e31c5a13de02f9a1e176b56e67
+          path: ${{ env.PDK_ROOT }}
+          key: ${{ runner.os }}-pdk-${{ env.PDK_NAME }}-${{ env.PDK_VERSION }}
 
       - name: Install Sky130 PDK (Volare CLI)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          volare enable sky130 12df12e2e74145e31c5a13de02f9a1e176b56e67 --pdk-root /home/runner/pdk
-          test -d /home/runner/pdk/sky130A || (echo "PDK not found at /home/runner/pdk/sky130A" && exit 1)
+          volare enable --pdk "${PDK_NAME}" "${PDK_VERSION}" --pdk-root "${PDK_ROOT}"
+          test -d "${PDK_ROOT}/sky130A" || (echo "PDK not found at ${PDK_ROOT}/sky130A" && exit 1)
 
-      - run: |
-          python tools/scripts/gen_config.py --variant "${{ matrix.variant }}" --clock_ns "${{ matrix.clock_ns }}" --pdk-root "/home/runner/pdk" --out config.json
+      - name: Generate config.json
+        run: |
+          python tools/scripts/gen_config.py \
+            --variant "${{ matrix.variant }}" \
+            --clock_ns "${{ matrix.clock_ns }}" \
+            --pdk-root "${PDK_ROOT}" \
+            --out config.json
 
-      - run: docker pull ghcr.io/efabless/openlane2:2.4.0.dev1
+      - name: Pull OpenLane2 container
+        run: docker pull "${OPENLANE2_IMAGE}"
 
       - name: Run OpenLane2 (docker)
-        run: docker run --rm -v "${GITHUB_WORKSPACE}:/work" -v "/home/runner/pdk:/pdk" -w /work ghcr.io/efabless/openlane2:2.4.0.dev1 bash -lc "python3 -m openlane --pdk-root /pdk config.json"
+        run: |
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/work" \
+            -v "${PDK_ROOT}:/pdk" \
+            -w /work \
+            "${OPENLANE2_IMAGE}" \
+            bash -lc "python3 -m openlane --pdk-root /pdk config.json"
 
-      - if: always()
+      - name: Collect outputs into docs/
+        if: always()
+        shell: bash
         run: |
           RUN_ID="${{ github.run_id }}"
           OUT_DIR="docs/results/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${RUN_ID}"
           mkdir -p "$OUT_DIR"
-          [ -d "runs" ] && cp -rv runs "$OUT_DIR/" || true
+
+          # Copy full run folder for provenance (you can slim later)
+          if [ -d "runs" ]; then
+            cp -rv runs "$OUT_DIR/" || true
+          fi
+
+          # Convert metrics.json + power.rpt into tables/files
           python tools/scripts/extract_metrics.py . --out "$OUT_DIR" || true
+
+          # KLayout 2D renders (PNGs)
           python tools/scripts/render_gds.py --run-root . --out "$OUT_DIR/renders" || true
 
-      - if: always()
+          # Create a small per-run HTML "viewer" page (static)
+          python - <<'PY'
+          import os, glob
+          out_dir = os.environ.get("OUT_DIR", "")
+          if not out_dir:
+              raise SystemExit(0)
+          renders = sorted(glob.glob(os.path.join(out_dir, "renders", "*.png")))
+          html_path = os.path.join(out_dir, "viewer.html")
+          with open(html_path, "w", encoding="utf-8") as f:
+              f.write("<!doctype html><html><head><meta charset='utf-8'>"
+                      "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+                      "<title>Layout Renders</title>"
+                      "<style>body{font-family:system-ui;margin:24px;max-width:1100px}"
+                      "img{max-width:100%;border:1px solid #ddd;margin:12px 0}</style>"
+                      "</head><body>")
+              f.write("<h1>Layout Renders</h1>")
+              if not renders:
+                  f.write("<p>No PNG renders found (flow may have failed early).</p>")
+              for p in renders:
+                  rel = os.path.relpath(p, out_dir).replace("\\","/")
+                  f.write(f"<div><img src='{rel}' alt='{rel}'/></div>")
+              f.write("<p>For interactive inspection / 3D view, download the GDS from the artifact and open in KLayout.</p>")
+              f.write("</body></html>")
+          print("Wrote", html_path)
+          PY
+        env:
+          OUT_DIR: docs/results/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${{ github.run_id }}
+
+      - name: Upload per-run docs artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: docs-${{ matrix.variant }}-${{ matrix.clock_ns }}
           path: docs/
+
+      - name: Job Summary (per-run metrics + links)
+        if: always()
+        shell: bash
+        run: |
+          RUN_ID="${{ github.run_id }}"
+          OUT_DIR="docs/results/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${RUN_ID}"
+
+          echo "## Run: ${{ matrix.variant }} @ ${{ matrix.clock_ns }} ns" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -f "$OUT_DIR/metrics.md" ]; then
+            cat "$OUT_DIR/metrics.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- No metrics.md found (flow may have failed early)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Artifact: **docs-${{ matrix.variant }}-${{ matrix.clock_ns }}** (contains runs/, metrics, renders, viewer.html, and GDS if generated)" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$OUT_DIR/viewer.html" ]; then
+            echo "- Per-run viewer page (in Pages after deploy): \`$OUT_DIR/viewer.html\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
 
   assemble_pages:
     needs: harden
@@ -105,23 +203,48 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - run: |
+      - name: Install python deps
+        run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install "markdown"
 
-      - uses: actions/download-artifact@v4
+      - name: Download all per-run docs artifacts
+        uses: actions/download-artifact@v4
         with:
           pattern: docs-*
           path: _docs_in
           merge-multiple: true
 
-      - run: |
+      - name: Merge docs + build dashboard
+        shell: bash
+        run: |
           rm -rf docs
           mkdir -p docs
           cp -rv _docs_in/* docs/ || true
           python tools/scripts/build_dashboard.py --mode full || true
+          touch docs/.nojekyll
 
-      - uses: actions/upload-pages-artifact@v3
+          # Ensure there is an HTML landing page
+          if [ -f tools/scripts/md_to_html.py ] && [ -f docs/index.md ]; then
+            python tools/scripts/md_to_html.py docs/index.md docs/index.html || true
+          fi
+
+      - name: Global Job Summary (dashboard)
+        shell: bash
+        run: |
+          echo "## Dashboard (this run)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f docs/index.md ]; then
+            cat docs/index.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- No docs/index.md generated yet." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Artifacts: one per sweep point (download to get GDS/DEF/LEF/reports if generated)." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Pages artifact (single)
+        uses: actions/upload-pages-artifact@v3
         with:
           path: docs/
 
