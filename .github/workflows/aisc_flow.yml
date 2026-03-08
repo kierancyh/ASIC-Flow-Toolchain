@@ -189,39 +189,27 @@ jobs:
         env:
           OUT_DIR: docs/results/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${{ github.run_id }}
         run: |
-          python - <<'PY'
-          import glob
-          import os
-
-          out_dir = os.environ["OUT_DIR"]
-          renders = sorted(glob.glob(os.path.join(out_dir, "renders", "*.png")))
-          html_path = os.path.join(out_dir, "viewer.html")
-
-          with open(html_path, "w", encoding="utf-8") as f:
-              f.write("""<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Layout Renders</title>
-<style>
-body { font-family: system-ui; margin: 24px; max-width: 1100px; }
-img { max-width: 100%; border: 1px solid #ddd; margin: 12px 0; }
-code { background: #f4f4f4; padding: 2px 6px; border-radius: 6px; }
-</style>
-</head>
-<body>
-<h1>Layout Renders</h1>
-""")
-              if not renders:
-                  f.write("<p>No PNG renders found.</p>")
-              else:
-                  for p in renders:
-                      rel = os.path.relpath(p, out_dir).replace("\\\\", "/")
-                      f.write(f"<div><img src='{rel}' alt='{rel}'/></div>\\n")
-              f.write("<p>For interactive / 3D viewing, download the GDS from the artifact and open it in KLayout locally.</p>")
-              f.write("</body></html>")
-          PY
+          mkdir -p "$OUT_DIR"
+          cat > "$OUT_DIR/viewer.html" <<'HTML'
+          <!doctype html>
+          <html>
+          <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width,initial-scale=1">
+          <title>Layout Renders</title>
+          <style>
+          body { font-family: system-ui; margin: 24px; max-width: 1100px; }
+          img { max-width: 100%; border: 1px solid #ddd; margin: 12px 0; }
+          code { background: #f4f4f4; padding: 2px 6px; border-radius: 6px; }
+          </style>
+          </head>
+          <body>
+          <h1>Layout Renders</h1>
+          <p>Open the PNG renders in the <code>renders/</code> folder beside this file.</p>
+          <p>For interactive / 3D viewing, download the GDS from the artifact and open it in KLayout locally.</p>
+          </body>
+          </html>
+          HTML
 
       - name: Upload per-run artifact
         if: always()
@@ -252,53 +240,58 @@ code { background: #f4f4f4; padding: 2px 6px; border-radius: 6px; }
             echo "" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
-          import csv
-          import os
-          from pathlib import Path
+          echo "### Links" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Artifact: \`docs-${{ matrix.variant }}-${{ matrix.clock_ns }}\`" >> "$GITHUB_STEP_SUMMARY"
 
-          out_dir = Path(os.environ["OUT_DIR"])
-          csv_path = out_dir / "metrics.csv"
+          if [ -f "$OUT_DIR/viewer.html" ]; then
+            echo "- viewer.html: \`$OUT_DIR/viewer.html\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f "$OUT_DIR/metrics_raw.json" ]; then
+            echo "- metrics_raw.json: \`$OUT_DIR/metrics_raw.json\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -d "$OUT_DIR/renders" ]; then
+            echo "- renders/: \`$OUT_DIR/renders\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
 
-          print("### Links")
-          print("")
-          print(f"- Artifact: `docs-${out_dir.parts[2]}-{out_dir.name.split('_')[1].replace('ns','')}`")
-          if (out_dir / "viewer.html").exists():
-              print(f"- viewer.html: `{out_dir / 'viewer.html'}`")
-          if (out_dir / "metrics_raw.json").exists():
-              print(f"- metrics_raw.json: `{out_dir / 'metrics_raw.json'}`")
-          if (out_dir / 'renders').exists():
-              print(f"- renders/: `{out_dir / 'renders'}`")
-          print("")
+          if [ -f "$OUT_DIR/metrics.csv" ]; then
+            {
+              echo "### Key metrics"
+              echo ""
+              python - "$OUT_DIR/metrics.csv" <<'PY'
+import csv
+import sys
 
-          if csv_path.exists():
-              with open(csv_path, newline="", encoding="utf-8") as f:
-                  rows = list(csv.DictReader(f))
-              if rows:
-                  row = rows[0]
-                  print("### Key metrics")
-                  print("")
-                  print("| metric | value |")
-                  print("|---|---:|")
-                  for key in [
-                      "clock_ns",
-                      "setup_wns_ns",
-                      "setup_tns_ns",
-                      "hold_wns_ns",
-                      "hold_tns_ns",
-                      "core_area_um2",
-                      "die_area_um2",
-                      "instance_count",
-                      "utilization_pct",
-                      "power_total_W",
-                      "drc_errors",
-                      "lvs_errors",
-                      "antenna_violations",
-                      "status",
-                  ]:
-                      if key in row:
-                          print(f"| {key} | {row.get(key, '')} |")
-          PY
+csv_path = sys.argv[1]
+with open(csv_path, newline="", encoding="utf-8") as f:
+    rows = list(csv.DictReader(f))
+
+if rows:
+    row = rows[0]
+    print("| metric | value |")
+    print("|---|---:|")
+    for key in [
+        "clock_ns",
+        "setup_wns_ns",
+        "setup_tns_ns",
+        "hold_wns_ns",
+        "hold_tns_ns",
+        "core_area_um2",
+        "die_area_um2",
+        "instance_count",
+        "utilization_pct",
+        "power_total_W",
+        "drc_errors",
+        "lvs_errors",
+        "antenna_violations",
+        "status",
+    ]:
+        if key in row:
+            print(f"| {key} | {row.get(key, '')} |")
+PY
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   assemble-summary:
     name: assemble-summary
