@@ -30,9 +30,16 @@ jobs:
           pip install -r requirements.txt
 
       - id: mk
-        name: Build run matrix from manifest
+        name: Build run matrix from manifest (syntax-safe output)
+        shell: bash
         run: |
-          echo "matrix=$(python tools/scripts/make_matrix.py)" >> "$GITHUB_OUTPUT"
+          MATRIX_JSON="$(python tools/scripts/make_matrix.py)"
+          # Write JSON safely even if it contains spaces/quotes
+          {
+            echo "matrix<<EOF"
+            echo "$MATRIX_JSON"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
   harden:
     needs: plan
@@ -45,36 +52,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install system deps (LibreLane prerequisites)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y verilator make git bash coreutils findutils sed gawk
-
-      - name: Set up Python
+      - name: Set up Python (host)
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
 
-      - name: Install python deps + YoWASP yosys
+      - name: Install host python deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install yowasp-yosys
-
-          echo "which yowasp-yosys: $(which yowasp-yosys || true)"
-          yowasp-yosys -h | head -n 5 || true
-
-      - name: Force YoWASP yosys shim (make `yosys` use yowasp-yosys)
-        run: |
-          mkdir -p "$GITHUB_WORKSPACE/.bin"
-          cat > "$GITHUB_WORKSPACE/.bin/yosys" <<'EOF'
-          #!/usr/bin/env bash
-          exec yowasp-yosys "$@"
-          EOF
-          chmod +x "$GITHUB_WORKSPACE/.bin/yosys"
-          echo "$GITHUB_WORKSPACE/.bin" >> "$GITHUB_PATH"
-          echo "which yosys: $(which yosys)"
 
       - name: Install Sky130 PDK (Volare)
         uses: TinyTapeout/volare-action@v2
@@ -91,9 +78,15 @@ jobs:
             --pdk-root "/home/runner/pdk" \
             --out config.json
 
-      - name: Run LibreLane harden
+      - name: Run LibreLane harden (docker: OpenLane2)
         run: |
-          python -m librelane --pdk-root "/home/runner/pdk" config.json
+          docker pull ghcr.io/efabless/openlane2:2.4.0.dev1
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/work" \
+            -v "/home/runner/pdk:/pdk" \
+            -w /work \
+            ghcr.io/efabless/openlane2:2.4.0.dev1 \
+            bash -lc "python -m librelane --pdk-root /pdk config.json"
 
       - name: Collect artifacts into docs/
         if: always()
