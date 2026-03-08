@@ -73,6 +73,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run", type=Path, help="Run folder containing final/metrics.json")
     ap.add_argument("--out", type=Path, required=True, help="Output directory")
+    ap.add_argument("--clock-ns", type=float, default=None, help="Requested clock period from workflow")
     args = ap.parse_args()
 
     run = args.run
@@ -87,12 +88,15 @@ def main():
     if metrics_path.exists():
         metrics = load_json(metrics_path)
 
+    clock_from_metrics = first(
+        metrics,
+        "clock__period",
+        "clock__period__corner:nom_tt_025C_1v80",
+    )
+
     row: Dict[str, Any] = {
-        "clock_ns": first(
-            metrics,
-            "clock__period",
-            "clock__period__corner:nom_tt_025C_1v80",
-        ),
+        "clock_ns": args.clock_ns if args.clock_ns is not None else clock_from_metrics,
+        "clock_ns_reported": clock_from_metrics,
         "setup_wns_ns": first(
             metrics,
             "timing__setup__wns__corner:nom_tt_025C_1v80",
@@ -113,16 +117,8 @@ def main():
             "timing__hold__tns__corner:nom_tt_025C_1v80",
             "timing__hold__tns",
         ),
-        "core_area_um2": first(
-            metrics,
-            "design__core__area",
-            "floorplan__core__area",
-        ),
-        "die_area_um2": first(
-            metrics,
-            "design__die__area",
-            "floorplan__die__area",
-        ),
+        "core_area_um2": first(metrics, "design__core__area", "floorplan__core__area"),
+        "die_area_um2": first(metrics, "design__die__area", "floorplan__die__area"),
         "instance_count": first(metrics, "design__instance__count"),
         "utilization_pct": first(
             metrics,
@@ -130,21 +126,9 @@ def main():
             "design__utilization",
             "floorplan__utilization",
         ),
-        "drc_errors": first(
-            metrics,
-            "klayout__drc_error__count",
-            "magic__drc_error__count",
-        ),
-        "lvs_errors": first(
-            metrics,
-            "design__lvs_error__count",
-            "netgen__lvs_error__count",
-        ),
-        "antenna_violations": first(
-            metrics,
-            "antenna__violating__nets",
-            "antenna__violating__pins",
-        ),
+        "drc_errors": first(metrics, "klayout__drc_error__count", "magic__drc_error__count"),
+        "lvs_errors": first(metrics, "design__lvs_error__count", "netgen__lvs_error__count"),
+        "antenna_violations": first(metrics, "antenna__violating__nets", "antenna__violating__pins"),
         "ir_drop_worst_V": first(metrics, "ir__drop__worst"),
     }
 
@@ -167,6 +151,7 @@ def main():
 
     field_order = [
         "clock_ns",
+        "clock_ns_reported",
         "setup_wns_ns",
         "setup_tns_ns",
         "hold_wns_ns",
@@ -195,9 +180,7 @@ def main():
         w.writerow({k: row.get(k) for k in field_order})
 
     def fmt(v: Any) -> str:
-        if v is None:
-            return ""
-        return str(v)
+        return "" if v is None else str(v)
 
     md_lines = [
         "| " + " | ".join(field_order) + " |",
@@ -212,6 +195,7 @@ def main():
         f"metrics={metrics_path if metrics_path.exists() else '(missing)'}",
         f"power_rpt={power_rpt if power_rpt.exists() else '(missing)'}",
         f"fair_sta={fair_rpt if fair_rpt.exists() else '(none)'}",
+        f"clock_ns_requested={args.clock_ns}",
     ]
     (out / "provenance.txt").write_text("\n".join(prov) + "\n", encoding="utf-8")
 

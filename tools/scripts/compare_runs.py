@@ -66,24 +66,22 @@ def best_sort_key(row: Dict[str, str]):
 def collect_rows(artifacts_root: Path) -> List[Dict[str, str]]:
     rows: List[Dict[str, str]] = []
 
-    for csv_path in sorted(artifacts_root.glob("**/metrics.csv")):
+    # Only collect the extracted top-level summary CSVs, not anything under copied runs/
+    for csv_path in sorted(artifacts_root.glob("**/ci_out/*/clk_*ns_*/metrics.csv")):
         row = read_csv_row(csv_path)
         if not row:
             continue
 
-        rel = csv_path.relative_to(artifacts_root)
-        parts = rel.parts
-
-        artifact_name = parts[0] if len(parts) > 0 else ""
-        variant = parts[2] if len(parts) > 2 else ""
-        run_dir = parts[3] if len(parts) > 3 else ""
-
-        row["_artifact"] = artifact_name
-        row["_variant"] = variant
-        row["_run_dir"] = run_dir
-        row["_metrics_csv"] = str(rel)
-
         base_dir = csv_path.parent
+        meta_path = base_dir / "run_meta.json"
+        meta: Dict[str, Any] = {}
+        if meta_path.exists():
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+
+        row["_artifact"] = meta.get("artifact_name", csv_path.parts[0] if csv_path.parts else "")
+        row["_variant"] = meta.get("variant", csv_path.parent.parent.name)
+        row["_run_dir"] = base_dir.name
+        row["_metrics_csv"] = str(csv_path.relative_to(artifacts_root))
         row["_viewer"] = str((base_dir / "viewer.html").relative_to(artifacts_root)) if (base_dir / "viewer.html").exists() else ""
         row["_metrics_raw"] = str((base_dir / "metrics_raw.json").relative_to(artifacts_root)) if (base_dir / "metrics_raw.json").exists() else ""
         row["_gds_dir"] = str((base_dir / "final" / "gds").relative_to(artifacts_root)) if (base_dir / "final" / "gds").exists() else ""
@@ -100,6 +98,7 @@ def write_summary_csv(path: Path, rows: List[Dict[str, str]]) -> None:
         "_run_dir",
         "_artifact",
         "clock_ns",
+        "clock_ns_reported",
         "setup_wns_ns",
         "setup_tns_ns",
         "hold_wns_ns",
@@ -109,9 +108,13 @@ def write_summary_csv(path: Path, rows: List[Dict[str, str]]) -> None:
         "instance_count",
         "utilization_pct",
         "power_total_W",
+        "power_internal_W",
+        "power_switching_W",
+        "power_leakage_W",
         "drc_errors",
         "lvs_errors",
         "antenna_violations",
+        "ir_drop_worst_V",
         "status",
         "_viewer",
         "_metrics_csv",
@@ -132,11 +135,11 @@ def write_summary_md(path: Path, rows: List[Dict[str, str]]) -> None:
 
     if rows:
         best = sorted(rows, key=best_sort_key)[0]
-        lines.append("| Variant | Run | Clock (ns) | Setup WNS | Setup TNS | DRC | LVS | Antenna | Status | Artifact |")
-        lines.append("|---|---|---:|---:|---:|---:|---:|---:|---|---|")
+        lines.append("| Variant | Run | Clock (ns) | Setup WNS | Setup TNS | Hold WNS | DRC | LVS | Antenna | Status | Artifact |")
+        lines.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---|---|")
         lines.append(
             f"| {best.get('_variant','')} | {best.get('_run_dir','')} | "
-            f"{best.get('clock_ns','')} | {best.get('setup_wns_ns','')} | {best.get('setup_tns_ns','')} | "
+            f"{best.get('clock_ns','')} | {best.get('setup_wns_ns','')} | {best.get('setup_tns_ns','')} | {best.get('hold_wns_ns','')} | "
             f"{best.get('drc_errors','')} | {best.get('lvs_errors','')} | {best.get('antenna_violations','')} | "
             f"{best.get('status','')} | {best.get('_artifact','')} |"
         )
@@ -146,16 +149,16 @@ def write_summary_md(path: Path, rows: List[Dict[str, str]]) -> None:
 
     lines.append("## All runs")
     lines.append("")
-    lines.append("| Variant | Run | Clock (ns) | Setup WNS | Setup TNS | Hold WNS | Core Area | Die Area | Inst | Util (%) | Power (W) | DRC | LVS | Antenna | Status | Artifact |")
-    lines.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|")
+    lines.append("| Variant | Run | Clock (ns) | Setup WNS | Setup TNS | Hold WNS | Core Area | Die Area | Inst | Util (%) | Power (W) | DRC | LVS | Antenna | IR Drop (V) | Status | Artifact |")
+    lines.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|")
 
     for row in sorted(rows, key=best_sort_key):
         lines.append(
             f"| {row.get('_variant','')} | {row.get('_run_dir','')} | "
-            f"{row.get('clock_ns','')} | {row.get('setup_wns_ns','')} | {row.get('setup_tns_ns','')} | "
-            f"{row.get('hold_wns_ns','')} | {row.get('core_area_um2','')} | {row.get('die_area_um2','')} | "
-            f"{row.get('instance_count','')} | {row.get('utilization_pct','')} | {row.get('power_total_W','')} | "
-            f"{row.get('drc_errors','')} | {row.get('lvs_errors','')} | {row.get('antenna_violations','')} | "
+            f"{row.get('clock_ns','')} | {row.get('setup_wns_ns','')} | {row.get('setup_tns_ns','')} | {row.get('hold_wns_ns','')} | "
+            f"{row.get('core_area_um2','')} | {row.get('die_area_um2','')} | {row.get('instance_count','')} | "
+            f"{row.get('utilization_pct','')} | {row.get('power_total_W','')} | {row.get('drc_errors','')} | "
+            f"{row.get('lvs_errors','')} | {row.get('antenna_violations','')} | {row.get('ir_drop_worst_V','')} | "
             f"{row.get('status','')} | {row.get('_artifact','')} |"
         )
 

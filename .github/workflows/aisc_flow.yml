@@ -143,6 +143,15 @@ jobs:
           OUT_DIR="ci_out/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${RUN_ID}"
           mkdir -p "$OUT_DIR"
 
+          cat > "$OUT_DIR/run_meta.json" <<EOF
+          {
+            "variant": "${{ matrix.variant }}",
+            "clock_ns_requested": "${{ matrix.clock_ns }}",
+            "github_run_id": "${{ github.run_id }}",
+            "artifact_name": "run-${{ matrix.variant }}-${{ matrix.clock_ns }}"
+          }
+          EOF
+
           if [ -d runs ]; then
             cp -rv runs "$OUT_DIR/" || true
           fi
@@ -151,7 +160,7 @@ jobs:
           echo "RUN_DIR used: ${RUN_DIR:-<none>}" > "$OUT_DIR/run_dir_used.txt"
 
           if [ -n "$RUN_DIR" ]; then
-            python tools/scripts/extract_metrics.py "$RUN_DIR" --out "$OUT_DIR" || true
+            python tools/scripts/extract_metrics.py "$RUN_DIR" --out "$OUT_DIR" --clock-ns "${{ matrix.clock_ns }}" || true
             python tools/scripts/render_gds.py --run-root "$RUN_DIR" --out "$OUT_DIR/renders" || true
 
             if [ -f "$RUN_DIR/final/metrics.json" ]; then
@@ -231,6 +240,9 @@ jobs:
           fi
           if [ -f "$OUT_DIR/metrics_raw.json" ]; then
             echo "- metrics_raw.json included" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f "$OUT_DIR/run_meta.json" ]; then
+            echo "- run_meta.json included" >> "$GITHUB_STEP_SUMMARY"
           fi
           if [ -d "$OUT_DIR/final/gds" ]; then
             echo "- GDS included" >> "$GITHUB_STEP_SUMMARY"
