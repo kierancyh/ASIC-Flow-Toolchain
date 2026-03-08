@@ -17,13 +17,16 @@ jobs:
       matrix: ${{ steps.mk.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
+
       - run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
       - id: mk
         shell: bash
         run: |
@@ -53,20 +56,27 @@ jobs:
       - run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install "volare==0.20.6"
 
-      - uses: TinyTapeout/volare-action@v2
+      - name: Cache Sky130 PDK
+        uses: actions/cache@v4
         with:
-          pdk_name: sky130
-          pdk_version: 12df12e2e74145e31c5a13de02f9a1e176b56e67
-          pdk_root: /home/runner/pdk
+          path: /home/runner/pdk
+          key: ${{ runner.os }}-pdk-sky130-12df12e2e74145e31c5a13de02f9a1e176b56e67
+
+      - name: Install Sky130 PDK (Volare CLI)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          volare enable sky130 12df12e2e74145e31c5a13de02f9a1e176b56e67 --pdk-root /home/runner/pdk
+          test -d /home/runner/pdk/sky130A || (echo "PDK not found at /home/runner/pdk/sky130A" && exit 1)
 
       - run: |
           python tools/scripts/gen_config.py --variant "${{ matrix.variant }}" --clock_ns "${{ matrix.clock_ns }}" --pdk-root "/home/runner/pdk" --out config.json
 
-      - name: OpenLane2 container (pull)
-        run: docker pull ghcr.io/efabless/openlane2:2.4.0.dev1
+      - run: docker pull ghcr.io/efabless/openlane2:2.4.0.dev1
 
-      - name: OpenLane2 container (run)
+      - name: Run OpenLane2 (docker)
         run: docker run --rm -v "${GITHUB_WORKSPACE}:/work" -v "/home/runner/pdk:/pdk" -w /work ghcr.io/efabless/openlane2:2.4.0.dev1 bash -lc "python3 -m openlane --pdk-root /pdk config.json"
 
       - if: always()
@@ -99,30 +109,24 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Download all docs artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           pattern: docs-*
           path: _docs_in
           merge-multiple: true
 
-      - name: Merge + build dashboard
-        run: |
+      - run: |
           rm -rf docs
           mkdir -p docs
           cp -rv _docs_in/* docs/ || true
           python tools/scripts/build_dashboard.py --mode full || true
 
-      - name: Upload Pages artifact (single)
-        uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v3
         with:
           path: docs/
 
   deploy_pages:
     needs: assemble_pages
     runs-on: ubuntu-24.04
-    permissions:
-      pages: write
-      id-token: write
     steps:
       - uses: actions/deploy-pages@v4
