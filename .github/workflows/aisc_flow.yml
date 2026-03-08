@@ -190,26 +190,26 @@ jobs:
           OUT_DIR: docs/results/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${{ github.run_id }}
         run: |
           mkdir -p "$OUT_DIR"
-          cat > "$OUT_DIR/viewer.html" <<'HTML'
-          <!doctype html>
-          <html>
-          <head>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width,initial-scale=1">
-          <title>Layout Renders</title>
-          <style>
-          body { font-family: system-ui; margin: 24px; max-width: 1100px; }
-          img { max-width: 100%; border: 1px solid #ddd; margin: 12px 0; }
-          code { background: #f4f4f4; padding: 2px 6px; border-radius: 6px; }
-          </style>
-          </head>
-          <body>
-          <h1>Layout Renders</h1>
-          <p>Open the PNG renders in the <code>renders/</code> folder beside this file.</p>
-          <p>For interactive / 3D viewing, download the GDS from the artifact and open it in KLayout locally.</p>
-          </body>
-          </html>
-          HTML
+          {
+            echo '<!doctype html>'
+            echo '<html>'
+            echo '<head>'
+            echo '<meta charset="utf-8">'
+            echo '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            echo '<title>Layout Renders</title>'
+            echo '<style>'
+            echo 'body { font-family: system-ui; margin: 24px; max-width: 1100px; }'
+            echo 'img { max-width: 100%; border: 1px solid #ddd; margin: 12px 0; }'
+            echo 'code { background: #f4f4f4; padding: 2px 6px; border-radius: 6px; }'
+            echo '</style>'
+            echo '</head>'
+            echo '<body>'
+            echo '<h1>Layout Renders</h1>'
+            echo '<p>Open the PNG renders in the <code>renders/</code> folder beside this file.</p>'
+            echo '<p>For interactive / 3D viewing, download the GDS from the artifact and open it in KLayout locally.</p>'
+            echo '</body>'
+            echo '</html>'
+          } > "$OUT_DIR/viewer.html"
 
       - name: Upload per-run artifact
         if: always()
@@ -256,41 +256,29 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
           if [ -f "$OUT_DIR/metrics.csv" ]; then
-            {
-              echo "### Key metrics"
-              echo ""
-              python - "$OUT_DIR/metrics.csv" <<'PY'
-import csv
-import sys
+            echo "### Key metrics" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "| metric | value |" >> "$GITHUB_STEP_SUMMARY"
+            echo "|---|---:|" >> "$GITHUB_STEP_SUMMARY"
 
-csv_path = sys.argv[1]
-with open(csv_path, newline="", encoding="utf-8") as f:
-    rows = list(csv.DictReader(f))
+            while IFS=, read -r clock_ns setup_wns_ns setup_tns_ns hold_wns_ns hold_tns_ns core_area_um2 die_area_um2 instance_count utilization_pct power_total_W power_internal_W power_switching_W power_leakage_W power_source drc_errors lvs_errors antenna_violations ir_drop_worst_V power_fair_sta_rpt status; do
+              :
+            done < <(tail -n +2 "$OUT_DIR/metrics.csv")
 
-if rows:
-    row = rows[0]
-    print("| metric | value |")
-    print("|---|---:|")
-    for key in [
-        "clock_ns",
-        "setup_wns_ns",
-        "setup_tns_ns",
-        "hold_wns_ns",
-        "hold_tns_ns",
-        "core_area_um2",
-        "die_area_um2",
-        "instance_count",
-        "utilization_pct",
-        "power_total_W",
-        "drc_errors",
-        "lvs_errors",
-        "antenna_violations",
-        "status",
-    ]:
-        if key in row:
-            print(f"| {key} | {row.get(key, '')} |")
-PY
-            } >> "$GITHUB_STEP_SUMMARY"
+            echo "| clock_ns | ${clock_ns:-} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| setup_wns_ns | ${setup_wns_ns:-} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| setup_tns_ns | ${setup_tns_ns:-} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| hold_wns_ns | ${hold_wns_ns:-} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| hold_tns_ns | ${hold_tns_ns:-} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| core_area_um2 | ${core_area_um2:-} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| die_area_um2 | ${die_area_um2:-} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| instance_count | ${instance_count:-} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| utilization_pct | ${utilization_pct:-} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| power_total_W | ${power_total_W:-} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| drc_errors | ${drc_errors:-} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| lvs_errors | ${lvs_errors:-} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| antenna_violations | ${antenna_violations:-} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| status | ${status:-} |" >> "$GITHUB_STEP_SUMMARY"
           fi
 
   assemble-summary:
