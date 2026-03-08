@@ -62,6 +62,7 @@ def main():
             include.append(
                 {
                     "variant": variant_path.replace("/", "_"),
+                    "variant_name": variant_path.replace("/", "_"),
                     "variant_path": variant_path,
                     "clock_ns": float(ns),
                 }

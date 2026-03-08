@@ -1,46 +1,78 @@
 #!/usr/bin/env python3
-"""Extract dissertation-friendly tables from a run directory.
-
-Inputs (expected):
-  - final/metrics.json
-  - power/power.rpt (OpenROAD report_power, prefer post-PnR nom_tt_025C_1v80)
-  - power/power_fair_sta.rpt (optional)
-
-Outputs:
-  - metrics.csv
-  - metrics.md
-  - provenance.txt (paths used)
-
-This script is intentionally close to your local extract_ll_metrics/compare_ll_metrics behavior.
-"""
 from __future__ import annotations
-import argparse, json, re
-from pathlib import Path
-from typing import Optional, Dict, Any
 
-SCI = re.compile(r"[-+]?\d+\.\d+e[+-]\d+")
+import argparse
+import csv
+import json
+from pathlib import Path
+from typing import Any, Dict, Optional
+
 
 def load_json(p: Path) -> Dict[str, Any]:
-    return json.loads(p.read_text())
+    return json.loads(p.read_text(encoding="utf-8"))
 
-def parse_openroad_power_rpt(p: Path) -> Optional[Dict[str,float]]:
+
+def first(metrics: Dict[str, Any], *keys: str) -> Any:
+    for k in keys:
+        if k in metrics and metrics[k] not in (None, ""):
+            return metrics[k]
+    return None
+
+
+def parse_openroad_power_rpt(p: Path) -> Optional[Dict[str, float]]:
     lines = p.read_text(errors="ignore").splitlines()
     for line in lines:
-        if line.strip().startswith("Total"):
-            parts = line.split()
+        s = line.strip()
+        if s.startswith("Total"):
+            parts = s.split()
             if len(parts) >= 5:
-                return {
-                    "internal_W": float(parts[1]),
-                    "switching_W": float(parts[2]),
-                    "leakage_W": float(parts[3]),
-                    "total_W": float(parts[4]),
-                }
+                try:
+                    return {
+                        "internal_W": float(parts[1]),
+                        "switching_W": float(parts[2]),
+                        "leakage_W": float(parts[3]),
+                        "total_W": float(parts[4]),
+                    }
+                except Exception:
+                    return None
     return None
+
+
+def status_from_row(row: Dict[str, Any]) -> str:
+    drc = row.get("drc_errors")
+    lvs = row.get("lvs_errors")
+    ant = row.get("antenna_violations")
+    swns = row.get("setup_wns_ns")
+    stns = row.get("setup_tns_ns")
+
+    def nonneg(x: Any) -> bool:
+        try:
+            return float(x) >= 0.0
+        except Exception:
+            return False
+
+    def zero_or_missing(x: Any) -> bool:
+        if x in (None, "", "None"):
+            return True
+        try:
+            return float(x) == 0.0
+        except Exception:
+            return False
+
+    clean_signoff = zero_or_missing(drc) and zero_or_missing(lvs) and zero_or_missing(ant)
+    timing_ok = nonneg(swns) and nonneg(stns)
+
+    if clean_signoff and timing_ok:
+        return "PASS"
+    if clean_signoff:
+        return "SIGNOFF_CLEAN_TIMING_FAIL"
+    return "INCOMPLETE"
+
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run", type=Path, help="Run folder containing final/metrics.json")
-    ap.add_argument("--out", type=Path, default=Path("out"), help="Output folder")
+    ap.add_argument("--out", type=Path, required=True, help="Output directory")
     args = ap.parse_args()
 
     run = args.run
@@ -48,47 +80,141 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
 
     metrics_path = run / "final" / "metrics.json"
-    metrics = load_json(metrics_path) if metrics_path.exists() else {}
-    # pick key fields (nom_tt corner preferred)
-    def g(k): return metrics.get(k)
+    power_rpt = run / "power" / "power.rpt"
+    fair_rpt = run / "power" / "power_fair_sta.rpt"
 
-    row = {
-      "clock_ns": g("clock__period") or g("clock__period__corner:nom_tt_025C_1v80"),
-      "setup_wns_ns": g("timing__setup__wns__corner:nom_tt_025C_1v80") or g("timing__setup__wns"),
-      "setup_tns_ns": g("timing__setup__tns__corner:nom_tt_025C_1v80") or g("timing__setup__tns"),
-      "core_area_um2": g("design__core__area") or g("floorplan__core__area"),
-      "die_area_um2": g("design__die__area") or g("floorplan__die__area"),
-      "instance_count": g("design__instance__count"),
-      "utilization": g("design__utilization") or g("floorplan__utilization"),
+    metrics: Dict[str, Any] = {}
+    if metrics_path.exists():
+        metrics = load_json(metrics_path)
+
+    row: Dict[str, Any] = {
+        "clock_ns": first(
+            metrics,
+            "clock__period",
+            "clock__period__corner:nom_tt_025C_1v80",
+        ),
+        "setup_wns_ns": first(
+            metrics,
+            "timing__setup__wns__corner:nom_tt_025C_1v80",
+            "timing__setup__wns",
+        ),
+        "setup_tns_ns": first(
+            metrics,
+            "timing__setup__tns__corner:nom_tt_025C_1v80",
+            "timing__setup__tns",
+        ),
+        "hold_wns_ns": first(
+            metrics,
+            "timing__hold__wns__corner:nom_tt_025C_1v80",
+            "timing__hold__wns",
+        ),
+        "hold_tns_ns": first(
+            metrics,
+            "timing__hold__tns__corner:nom_tt_025C_1v80",
+            "timing__hold__tns",
+        ),
+        "core_area_um2": first(
+            metrics,
+            "design__core__area",
+            "floorplan__core__area",
+        ),
+        "die_area_um2": first(
+            metrics,
+            "design__die__area",
+            "floorplan__die__area",
+        ),
+        "instance_count": first(metrics, "design__instance__count"),
+        "utilization_pct": first(
+            metrics,
+            "design__instance__utilization",
+            "design__utilization",
+            "floorplan__utilization",
+        ),
+        "drc_errors": first(
+            metrics,
+            "klayout__drc_error__count",
+            "magic__drc_error__count",
+        ),
+        "lvs_errors": first(
+            metrics,
+            "design__lvs_error__count",
+            "netgen__lvs_error__count",
+        ),
+        "antenna_violations": first(
+            metrics,
+            "antenna__violating__nets",
+            "antenna__violating__pins",
+        ),
+        "ir_drop_worst_V": first(metrics, "ir__drop__worst"),
     }
 
-    # power (post-pnr report first, else metrics.json power__total)
-    power_rpt = run / "power" / "power.rpt"
     p = parse_openroad_power_rpt(power_rpt) if power_rpt.exists() else None
     if p:
-        row.update({"power_total_W": p["total_W"], "power_internal_W": p["internal_W"], "power_switching_W": p["switching_W"], "power_leakage_W": p["leakage_W"]})
+        row["power_total_W"] = p["total_W"]
+        row["power_internal_W"] = p["internal_W"]
+        row["power_switching_W"] = p["switching_W"]
+        row["power_leakage_W"] = p["leakage_W"]
         row["power_source"] = str(power_rpt)
     else:
-        row["power_total_W"] = g("power__total")
-        row["power_source"] = "metrics.json"
+        row["power_total_W"] = first(metrics, "power__total")
+        row["power_internal_W"] = None
+        row["power_switching_W"] = None
+        row["power_leakage_W"] = None
+        row["power_source"] = "metrics.json" if metrics else None
 
-    fair = run / "power" / "power_fair_sta.rpt"
-    row["power_fair_sta_W"] = None
-    if fair.exists():
-        # keep as raw text path; you can extend parsing later
-        row["power_fair_sta_rpt"] = str(fair)
+    row["power_fair_sta_rpt"] = str(fair_rpt) if fair_rpt.exists() else None
+    row["status"] = status_from_row(row)
 
-    # write CSV/MD
-    import pandas as pd
-    df = pd.DataFrame([row])
-    df.to_csv(out / "metrics.csv", index=False)
-    try:
-        (out / "metrics.md").write_text(df.to_markdown(index=False, floatfmt=".6g")+"\n")
-    except Exception:
-        (out / "metrics.md").write_text(df.to_csv(index=False)+"\n")
+    field_order = [
+        "clock_ns",
+        "setup_wns_ns",
+        "setup_tns_ns",
+        "hold_wns_ns",
+        "hold_tns_ns",
+        "core_area_um2",
+        "die_area_um2",
+        "instance_count",
+        "utilization_pct",
+        "power_total_W",
+        "power_internal_W",
+        "power_switching_W",
+        "power_leakage_W",
+        "power_source",
+        "drc_errors",
+        "lvs_errors",
+        "antenna_violations",
+        "ir_drop_worst_V",
+        "power_fair_sta_rpt",
+        "status",
+    ]
 
-    prov = [f"run={run}", f"metrics={metrics_path if metrics_path.exists() else '(missing)'}", f"power_rpt={power_rpt if power_rpt.exists() else '(missing)'}", f"fair_sta={fair if fair.exists() else '(none)'}"]
-    (out / "provenance.txt").write_text("\n".join(prov)+"\n")
+    csv_path = out / "metrics.csv"
+    with csv_path.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=field_order)
+        w.writeheader()
+        w.writerow({k: row.get(k) for k in field_order})
+
+    def fmt(v: Any) -> str:
+        if v is None:
+            return ""
+        return str(v)
+
+    md_lines = [
+        "| " + " | ".join(field_order) + " |",
+        "|" + "|".join(["---"] * len(field_order)) + "|",
+        "| " + " | ".join(fmt(row.get(k)) for k in field_order) + " |",
+        "",
+    ]
+    (out / "metrics.md").write_text("\n".join(md_lines), encoding="utf-8")
+
+    prov = [
+        f"run={run}",
+        f"metrics={metrics_path if metrics_path.exists() else '(missing)'}",
+        f"power_rpt={power_rpt if power_rpt.exists() else '(missing)'}",
+        f"fair_sta={fair_rpt if fair_rpt.exists() else '(none)'}",
+    ]
+    (out / "provenance.txt").write_text("\n".join(prov) + "\n", encoding="utf-8")
+
 
 if __name__ == "__main__":
     main()

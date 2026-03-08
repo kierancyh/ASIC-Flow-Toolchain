@@ -1,0 +1,379 @@
+name: ASIC Flow
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy_pages:
+        description: "Deploy GitHub Pages dashboard"
+        required: false
+        default: "false"
+      matrix_cap:
+        description: "Optional cap on number of sweep points"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+env:
+  PDK_NAME: sky130
+  PDK_VERSION: 12df12e2e74145e31c5a13de02f9a1e176b56e67
+  PDK_ROOT: /home/runner/pdk
+  OPENLANE2_IMAGE: ghcr.io/efabless/openlane2:2.4.0.dev1
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  plan:
+    name: plan
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.mk.outputs.matrix }}
+      deploy_pages: ${{ steps.flags.outputs.deploy_pages }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install "volare==0.20.6" "markdown" "pandas" "pyyaml"
+
+      - name: Resolve flags
+        id: flags
+        shell: bash
+        run: |
+          DEPLOY=false
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.deploy_pages }}" = "true" ]; then
+            DEPLOY=true
+          fi
+          echo "deploy_pages=$DEPLOY" >> "$GITHUB_OUTPUT"
+
+      - name: Build matrix from manifest
+        id: mk
+        shell: bash
+        run: |
+          CAP="${{ inputs.matrix_cap }}"
+          MATRIX_JSON="$(MATRIX_CAP="${CAP}" python tools/scripts/make_matrix.py)"
+          {
+            echo 'matrix<<EOF'
+            echo "$MATRIX_JSON"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+  run-flow:
+    name: run-flow (${{ matrix.variant }}, ${{ matrix.clock_ns }} ns)
+    needs: plan
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install python deps + volare
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install "volare==0.20.6" "markdown" "pandas" "pyyaml"
+
+      - name: Cache Sky130 PDK
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PDK_ROOT }}
+          key: ${{ runner.os }}-pdk-${{ env.PDK_NAME }}-${{ env.PDK_VERSION }}
+
+      - name: Install Sky130 PDK
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          volare enable --pdk "${PDK_NAME}" "${PDK_VERSION}" --pdk-root "${PDK_ROOT}"
+          test -d "${PDK_ROOT}/sky130A" || (echo "PDK not found at ${PDK_ROOT}/sky130A" && exit 1)
+
+      - name: Generate config.json
+        run: |
+          python tools/scripts/gen_config.py \
+            --variant "${{ matrix.variant }}" \
+            --clock_ns "${{ matrix.clock_ns }}" \
+            --pdk-root "${PDK_ROOT}" \
+            --out config.json
+
+      - name: Pull OpenLane2 container
+        run: docker pull "${OPENLANE2_IMAGE}"
+
+      - name: Run OpenLane2
+        run: |
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/work" \
+            -v "${PDK_ROOT}:/pdk" \
+            -w /work \
+            "${OPENLANE2_IMAGE}" \
+            bash -lc "python3 -m openlane --pdk-root /pdk config.json"
+
+      - name: Find run directory
+        id: findrun
+        shell: bash
+        run: |
+          set -e
+
+          if [ ! -d runs ]; then
+            echo "No runs/ directory produced."
+            echo "run_dir=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          FINAL_DIR="$(find runs -type f -path '*/final/metrics.json' -printf '%T@ %h\n' 2>/dev/null | sort -nr | head -n 1 | cut -d' ' -f2-)"
+          if [ -z "$FINAL_DIR" ]; then
+            echo "No runs/**/final/metrics.json found."
+            find runs -maxdepth 4 -type d || true
+            echo "run_dir=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          RUN_DIR="$(dirname "$FINAL_DIR")"
+          echo "Detected FINAL_DIR=$FINAL_DIR"
+          echo "Detected RUN_DIR=$RUN_DIR"
+          echo "run_dir=$RUN_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Collect outputs
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RUN_ID="${{ github.run_id }}"
+          OUT_DIR="docs/results/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${RUN_ID}"
+          mkdir -p "$OUT_DIR"
+
+          if [ -d runs ]; then
+            cp -rv runs "$OUT_DIR/" || true
+          fi
+
+          RUN_DIR="${{ steps.findrun.outputs.run_dir }}"
+          echo "RUN_DIR used: ${RUN_DIR:-<none>}" > "$OUT_DIR/run_dir_used.txt"
+
+          if [ -n "$RUN_DIR" ]; then
+            python tools/scripts/extract_metrics.py "$RUN_DIR" --out "$OUT_DIR" || true
+            python tools/scripts/render_gds.py --run-root "$RUN_DIR" --out "$OUT_DIR/renders" || true
+
+            if [ -f "$RUN_DIR/final/metrics.json" ]; then
+              cp -v "$RUN_DIR/final/metrics.json" "$OUT_DIR/metrics_raw.json" || true
+            fi
+
+            if [ -d "$RUN_DIR/final/gds" ]; then
+              mkdir -p "$OUT_DIR/final/gds"
+              cp -rv "$RUN_DIR/final/gds/." "$OUT_DIR/final/gds/" || true
+            fi
+          else
+            echo "No RUN_DIR found; skipping metrics/render extraction" > "$OUT_DIR/provenance.txt"
+          fi
+
+      - name: Create per-run viewer.html
+        if: always()
+        shell: bash
+        env:
+          OUT_DIR: docs/results/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${{ github.run_id }}
+        run: |
+          python - <<'PY'
+          import glob
+          import os
+
+          out_dir = os.environ["OUT_DIR"]
+          renders = sorted(glob.glob(os.path.join(out_dir, "renders", "*.png")))
+          html_path = os.path.join(out_dir, "viewer.html")
+
+          with open(html_path, "w", encoding="utf-8") as f:
+              f.write("""<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Layout Renders</title>
+<style>
+body { font-family: system-ui; margin: 24px; max-width: 1100px; }
+img { max-width: 100%; border: 1px solid #ddd; margin: 12px 0; }
+code { background: #f4f4f4; padding: 2px 6px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<h1>Layout Renders</h1>
+""")
+              if not renders:
+                  f.write("<p>No PNG renders found.</p>")
+              else:
+                  for p in renders:
+                      rel = os.path.relpath(p, out_dir).replace("\\\\", "/")
+                      f.write(f"<div><img src='{rel}' alt='{rel}'/></div>\\n")
+              f.write("<p>For interactive / 3D viewing, download the GDS from the artifact and open it in KLayout locally.</p>")
+              f.write("</body></html>")
+          PY
+
+      - name: Upload per-run artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-${{ matrix.variant }}-${{ matrix.clock_ns }}
+          path: docs/
+
+      - name: Job Summary
+        if: always()
+        shell: bash
+        env:
+          OUT_DIR: docs/results/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${{ github.run_id }}
+        run: |
+          echo "## Run: ${{ matrix.variant }} @ ${{ matrix.clock_ns }} ns" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -f "$OUT_DIR/run_dir_used.txt" ]; then
+            cat "$OUT_DIR/run_dir_used.txt" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ -f "$OUT_DIR/metrics.md" ]; then
+            cat "$OUT_DIR/metrics.md" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- No metrics.md produced." >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import csv
+          import os
+          from pathlib import Path
+
+          out_dir = Path(os.environ["OUT_DIR"])
+          csv_path = out_dir / "metrics.csv"
+
+          print("### Links")
+          print("")
+          print(f"- Artifact: `docs-${out_dir.parts[2]}-{out_dir.name.split('_')[1].replace('ns','')}`")
+          if (out_dir / "viewer.html").exists():
+              print(f"- viewer.html: `{out_dir / 'viewer.html'}`")
+          if (out_dir / "metrics_raw.json").exists():
+              print(f"- metrics_raw.json: `{out_dir / 'metrics_raw.json'}`")
+          if (out_dir / 'renders').exists():
+              print(f"- renders/: `{out_dir / 'renders'}`")
+          print("")
+
+          if csv_path.exists():
+              with open(csv_path, newline="", encoding="utf-8") as f:
+                  rows = list(csv.DictReader(f))
+              if rows:
+                  row = rows[0]
+                  print("### Key metrics")
+                  print("")
+                  print("| metric | value |")
+                  print("|---|---:|")
+                  for key in [
+                      "clock_ns",
+                      "setup_wns_ns",
+                      "setup_tns_ns",
+                      "hold_wns_ns",
+                      "hold_tns_ns",
+                      "core_area_um2",
+                      "die_area_um2",
+                      "instance_count",
+                      "utilization_pct",
+                      "power_total_W",
+                      "drc_errors",
+                      "lvs_errors",
+                      "antenna_violations",
+                      "status",
+                  ]:
+                      if key in row:
+                          print(f"| {key} | {row.get(key, '')} |")
+          PY
+
+  assemble-summary:
+    name: assemble-summary
+    needs: run-flow
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install "markdown" "pandas" "pyyaml"
+
+      - name: Download all per-run artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: _collected
+
+      - name: Merge docs trees
+        shell: bash
+        run: |
+          mkdir -p docs
+          find _collected -type d -path '*/docs' | while read -r d; do
+            cp -r "$d"/. docs/ || true
+          done
+
+      - name: Build static dashboard
+        run: |
+          python tools/scripts/build_dashboard.py --mode full
+          touch docs/.nojekyll
+
+      - name: Upload assembled dashboard artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-dashboard
+          path: docs/
+
+      - name: Workflow Summary
+        shell: bash
+        run: |
+          echo "# ASIC Flow Dashboard" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f docs/summary.md ]; then
+            cat docs/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- No summary.md produced." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  deploy-pages:
+    name: deploy-pages
+    needs: [plan, assemble-summary]
+    if: ${{ needs.plan.outputs.deploy_pages == 'true' }}
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download assembled dashboard
+        uses: actions/download-artifact@v4
+        with:
+          name: docs-dashboard
+          path: docs
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: Deploy Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

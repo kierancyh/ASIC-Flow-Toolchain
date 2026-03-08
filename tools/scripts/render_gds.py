@@ -1,32 +1,50 @@
-import argparse, os, glob, subprocess, sys
+#!/usr/bin/env python3
+import argparse
+import glob
+import os
+import subprocess
+from pathlib import Path
+
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--run-root", default=".")
+    ap.add_argument("--run-root", required=True, help="Run directory, e.g. runs/RUN_...")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
-    os.makedirs(args.out, exist_ok=True)
+    run_root = Path(args.run_root)
+    out_dir = Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Find a final GDS from LibreLane output structure
-    candidates = glob.glob(os.path.join(args.run_root, "runs", "**", "final", "gds", "*.gds"), recursive=True)
+    candidates = sorted((run_root / "final" / "gds").glob("*.gds"))
     if not candidates:
-        print("No GDS found to render.")
+        candidates = sorted(run_root.glob("**/final/gds/*.gds"))
+
+    if not candidates:
+        print(f"No GDS found under run root: {run_root}")
         return
 
-    gds = sorted(candidates)[-1]
-    out_png = os.path.join(args.out, os.path.basename(gds).replace(".gds", ".png"))
+    gds = candidates[-1]
+    out_png = out_dir / (gds.stem + ".png")
 
-    # Use KLayout in batch mode to export a screenshot
-    # This relies on klayout being installed (pip 'klayout' provides it).
-    script = os.path.join("tools", "scripts", "klayout_render.py")
-    if not os.path.exists(script):
+    script = Path("tools/scripts/klayout_render.py")
+    if not script.exists():
         raise SystemExit("Missing tools/scripts/klayout_render.py")
 
-    cmd = ["klayout", "-b", "-r", script, "-rd", f"INPUT={gds}", "-rd", f"OUTPUT={out_png}"]
+    cmd = [
+        "klayout",
+        "-b",
+        "-r",
+        str(script),
+        "-rd",
+        f"INPUT={gds}",
+        "-rd",
+        f"OUTPUT={out_png}",
+    ]
     print("Running:", " ".join(cmd))
     subprocess.check_call(cmd)
     print("Wrote:", out_png)
+
 
 if __name__ == "__main__":
     main()
