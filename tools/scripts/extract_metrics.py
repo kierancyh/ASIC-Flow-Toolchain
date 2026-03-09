@@ -94,6 +94,11 @@ def main():
         "clock__period__corner:nom_tt_025C_1v80",
     )
 
+    drc_klayout = first(metrics, "klayout__drc_error__count")
+    drc_magic = first(metrics, "magic__drc_error__count")
+    antenna_nets = first(metrics, "antenna__violating__nets")
+    antenna_pins = first(metrics, "antenna__violating__pins")
+
     row: Dict[str, Any] = {
         "clock_ns": args.clock_ns if args.clock_ns is not None else clock_from_metrics,
         "clock_ns_reported": clock_from_metrics,
@@ -126,9 +131,25 @@ def main():
             "design__utilization",
             "floorplan__utilization",
         ),
+        "wire_length_um": first(
+            metrics,
+            "route__wirelength",
+            "detailedroute__wirelength",
+            "globalroute__wirelength",
+        ),
+        "vias_count": first(
+            metrics,
+            "route__vias",
+            "detailedroute__via__count",
+            "globalroute__via__count",
+        ),
         "drc_errors": first(metrics, "klayout__drc_error__count", "magic__drc_error__count"),
+        "drc_errors_klayout": drc_klayout,
+        "drc_errors_magic": drc_magic,
         "lvs_errors": first(metrics, "design__lvs_error__count", "netgen__lvs_error__count"),
         "antenna_violations": first(metrics, "antenna__violating__nets", "antenna__violating__pins"),
+        "antenna_violating_nets": antenna_nets,
+        "antenna_violating_pins": antenna_pins,
         "ir_drop_worst_V": first(metrics, "ir__drop__worst"),
     }
 
@@ -160,14 +181,20 @@ def main():
         "die_area_um2",
         "instance_count",
         "utilization_pct",
+        "wire_length_um",
+        "vias_count",
         "power_total_W",
         "power_internal_W",
         "power_switching_W",
         "power_leakage_W",
         "power_source",
         "drc_errors",
+        "drc_errors_klayout",
+        "drc_errors_magic",
         "lvs_errors",
         "antenna_violations",
+        "antenna_violating_nets",
+        "antenna_violating_pins",
         "ir_drop_worst_V",
         "power_fair_sta_rpt",
         "status",
