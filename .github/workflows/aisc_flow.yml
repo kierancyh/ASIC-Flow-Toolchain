@@ -10,19 +10,16 @@ on:
         required: false
         default: ""
         type: string
-
       clock_list:
         description: "Optional comma-separated sweep, e.g. 150,101,60,40,30,20,17"
         required: false
         default: ""
         type: string
-
       matrix_cap:
         description: "Optional cap on number of sweep points"
         required: false
         default: ""
         type: number
-
       synth_strategy:
         description: "Synthesis strategy"
         required: false
@@ -37,25 +34,21 @@ on:
           - DELAY 1
           - DELAY 2
           - DELAY 3
-
       run_antenna_repair:
         description: "Enable antenna repair"
         required: false
         default: true
         type: boolean
-
       run_heuristic_diode_insertion:
         description: "Enable heuristic diode insertion"
         required: false
         default: true
         type: boolean
-
       run_post_grt_design_repair:
         description: "Enable post-GRT design repair"
         required: false
         default: true
         type: boolean
-
       run_post_grt_resizer_timing:
         description: "Enable post-GRT resizer timing"
         required: false
@@ -133,25 +126,25 @@ jobs:
           print(f"Validated matrix entries: {len(data)}")
           PY
 
-                    {
-                      echo 'matrix<<EOF'
-                      echo "$MATRIX_JSON"
-                      echo 'EOF'
-                    } >> "$GITHUB_OUTPUT"
+          {
+            echo 'matrix<<EOF'
+            echo "$MATRIX_JSON"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
 
-                - name: Plan Summary
-                  if: always()
-                  shell: bash
-                  env:
-                    INPUT_VARIANT: ${{ inputs.variant }}
-                    INPUT_CLOCK_LIST: ${{ inputs.clock_list }}
-                    INPUT_MATRIX_CAP: ${{ inputs.matrix_cap }}
-          run: |
-            echo "# Plan" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "- Variant input: \`${INPUT_VARIANT:-<all enabled>}\`" >> "$GITHUB_STEP_SUMMARY"
-            echo "- Clock list input: \`${INPUT_CLOCK_LIST:-<from variant.yaml>}\`" >> "$GITHUB_STEP_SUMMARY"
-            echo "- Matrix cap input: \`${INPUT_MATRIX_CAP:-<none>}\`" >> "$GITHUB_STEP_SUMMARY"
+      - name: Plan Summary
+        if: always()
+        shell: bash
+        env:
+          INPUT_VARIANT: ${{ inputs.variant }}
+          INPUT_CLOCK_LIST: ${{ inputs.clock_list }}
+          INPUT_MATRIX_CAP: ${{ inputs.matrix_cap }}
+        run: |
+          echo "# Plan" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Variant input: \`${INPUT_VARIANT:-<all enabled>}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Clock list input: \`${INPUT_CLOCK_LIST:-<from variant.yaml>}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Matrix cap input: \`${INPUT_MATRIX_CAP:-<none>}\`" >> "$GITHUB_STEP_SUMMARY"
 
   run-flow:
     name: Run-Flow (${{ matrix.variant }}, ${{ matrix.clock_ns }} ns)
