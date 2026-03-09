@@ -102,6 +102,8 @@ jobs:
           INPUT_CLOCK_LIST: ${{ inputs.clock_list }}
           INPUT_MATRIX_CAP: ${{ inputs.matrix_cap }}
         run: |
+          set -euo pipefail
+
           ARGS=()
 
           if [ -n "${INPUT_VARIANT}" ]; then
@@ -118,11 +120,38 @@ jobs:
 
           MATRIX_JSON="$(python tools/scripts/make_matrix.py "${ARGS[@]}")"
 
+          echo "Matrix JSON:"
+          echo "${MATRIX_JSON}"
+
+          python - "${MATRIX_JSON}" <<'PY'
+import json
+import sys
+
+data = json.loads(sys.argv[1])
+if not isinstance(data, list) or len(data) == 0:
+    raise SystemExit("ERROR: matrix is empty; check manifest.yaml and variant.yaml clock sweep settings.")
+print(f"Validated matrix entries: {len(data)}")
+PY
+
           {
             echo 'matrix<<EOF'
             echo "$MATRIX_JSON"
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
+
+      - name: Plan Summary
+        if: always()
+        shell: bash
+        env:
+          INPUT_VARIANT: ${{ inputs.variant }}
+          INPUT_CLOCK_LIST: ${{ inputs.clock_list }}
+          INPUT_MATRIX_CAP: ${{ inputs.matrix_cap }}
+        run: |
+          echo "# Plan" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Variant input: \`${INPUT_VARIANT:-<all enabled>}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Clock list input: \`${INPUT_CLOCK_LIST:-<from variant.yaml>}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Matrix cap input: \`${INPUT_MATRIX_CAP:-<none>}\`" >> "$GITHUB_STEP_SUMMARY"
 
   run-flow:
     name: Run-Flow (${{ matrix.variant }}, ${{ matrix.clock_ns }} ns)
@@ -441,7 +470,7 @@ jobs:
           fi
 
   deploy-run-explorer:
-    name: deploy-run-explorer
+    name: Summary Run Page
     needs: compare-runs
     if: always()
     runs-on: ubuntu-24.04

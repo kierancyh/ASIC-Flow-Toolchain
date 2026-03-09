@@ -23,6 +23,19 @@ def parse_clock_list(text: str):
     return vals
 
 
+def clocks_from_variant(vcfg: dict, exp: dict):
+    clock_cfg = vcfg.get("clock", {}) or {}
+
+    clocks = (
+        vcfg.get("clocks_ns")
+        or clock_cfg.get("sweep_ns")
+        or exp.get("clocks_ns")
+        or []
+    )
+
+    return clocks
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--variant", default="", help="Optional safe variant name, e.g. designs_rns_crt")
@@ -43,23 +56,26 @@ def main():
         if not exp.get("enabled", True):
             continue
 
-        safe_variant = exp["variant"].replace("/", "_")
-        variant_yaml = Path(exp["variant"]) / "variant.yaml"
+        variant_path = exp["variant"]
+        safe_variant = variant_path.replace("/", "_")
+        variant_yaml = Path(variant_path) / "variant.yaml"
         vcfg = load_yaml(str(variant_yaml))
 
         if args.clock_list.strip():
             clocks = parse_clock_list(args.clock_list)
         else:
-            clocks = vcfg.get("clocks_ns", []) or exp.get("clocks_ns", [])
+            clocks = clocks_from_variant(vcfg, exp)
 
         if cap is not None:
             clocks = clocks[:cap]
 
         for clk in clocks:
-            include.append({
-                "variant": safe_variant,
-                "clock_ns": clk,
-            })
+            include.append(
+                {
+                    "variant": safe_variant,
+                    "clock_ns": clk,
+                }
+            )
 
     print(json.dumps(include))
 
