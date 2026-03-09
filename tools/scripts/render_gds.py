@@ -1,36 +1,25 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import argparse
-import glob
-import os
+import json
 import subprocess
 from pathlib import Path
+from typing import List, Tuple
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--run-root", required=True, help="Run directory, e.g. runs/RUN_...")
-    ap.add_argument("--out", required=True)
-    args = ap.parse_args()
-
-    run_root = Path(args.run_root)
-    out_dir = Path(args.out)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
+def find_gds(run_root: Path) -> Path | None:
     candidates = sorted((run_root / "final" / "gds").glob("*.gds"))
     if not candidates:
         candidates = sorted(run_root.glob("**/final/gds/*.gds"))
-
     if not candidates:
-        print(f"No GDS found under run root: {run_root}")
-        return
+        return None
+    return candidates[-1]
 
-    gds = candidates[-1]
-    out_png = out_dir / (gds.stem + ".png")
 
-    script = Path("tools/scripts/klayout_render.py")
-    if not script.exists():
-        raise SystemExit("Missing tools/scripts/klayout_render.py")
-
+def render_one(script: Path, gds: Path, out_png: Path, size: Tuple[int, int]) -> None:
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    w, h = size
     cmd = [
         "klayout",
         "-b",
@@ -40,10 +29,67 @@ def main():
         f"INPUT={gds}",
         "-rd",
         f"OUTPUT={out_png}",
+        "-rd",
+        f"WIDTH={w}",
+        "-rd",
+        f"HEIGHT={h}",
     ]
     print("Running:", " ".join(cmd))
     subprocess.check_call(cmd)
     print("Wrote:", out_png)
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--run-root", required=True, help="Run directory, e.g. runs/RUN_...")
+    ap.add_argument("--out", required=True, help="Output directory for rendered PNGs")
+    args = ap.parse_args()
+
+    run_root = Path(args.run_root)
+    out_dir = Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    gds = find_gds(run_root)
+    if gds is None:
+        print(f"No GDS found under run root: {run_root}")
+        return
+
+    script = Path("tools/scripts/klayout_render.py")
+    if not script.exists():
+        raise SystemExit("Missing tools/scripts/klayout_render.py")
+
+    stem = gds.stem
+    views: List[Tuple[str, Tuple[int, int]]] = [
+        ("layout_top", (1600, 1200)),
+        ("layout_hires", (2400, 1800)),
+        ("layout_square", (1800, 1800)),
+    ]
+
+    written = []
+    for suffix, size in views:
+        out_png = out_dir / f"{stem}__{suffix}.png"
+        try:
+            render_one(script, gds, out_png, size)
+            written.append(
+                {
+                    "file": out_png.name,
+                    "width": size[0],
+                    "height": size[1],
+                    "kind": suffix,
+                }
+            )
+        except subprocess.CalledProcessError as e:
+            print(f"Render failed for {suffix}: {e}")
+
+    manifest = {
+        "gds": str(gds),
+        "renders": written,
+    }
+    (out_dir / "renders_manifest.json").write_text(
+        json.dumps(manifest, indent=2),
+        encoding="utf-8",
+    )
+    print("Wrote:", out_dir / "renders_manifest.json")
 
 
 if __name__ == "__main__":

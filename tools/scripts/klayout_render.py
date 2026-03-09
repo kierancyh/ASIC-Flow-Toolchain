@@ -1,23 +1,25 @@
 # KLayout batch script: reads INPUT GDS and writes OUTPUT PNG
-import pya, os
+import pya
 
-inp = pya.Application.instance().get_config("rd.INPUT")
-out = pya.Application.instance().get_config("rd.OUTPUT")
+app = pya.Application.instance()
+
+inp = app.get_config("rd.INPUT")
+out = app.get_config("rd.OUTPUT")
+width = app.get_config("rd.WIDTH")
+height = app.get_config("rd.HEIGHT")
+
+W = int(width) if width else 1600
+H = int(height) if height else 1200
 
 ly = pya.Layout()
 ly.read(inp)
 
-# Create a view in batch mode
 mw = pya.MainWindow.instance()
 lv = mw.create_layout(0)
 cv = lv.active_cellview()
 cv.layout().assign(ly)
 cv.cell = ly.top_cell()
 
-# Show all and export
 lv.add_missing_layers()
 lv.zoom_fit()
-
-# Width/height in pixels
-W, H = 1600, 1200
 lv.save_image(out, W, H)

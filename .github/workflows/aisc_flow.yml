@@ -181,27 +181,7 @@ jobs:
         env:
           OUT_DIR: ci_out/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${{ github.run_id }}
         run: |
-          mkdir -p "$OUT_DIR"
-          {
-            echo '<!doctype html>'
-            echo '<html>'
-            echo '<head>'
-            echo '<meta charset="utf-8">'
-            echo '<meta name="viewport" content="width=device-width,initial-scale=1">'
-            echo '<title>Layout Renders</title>'
-            echo '<style>'
-            echo 'body { font-family: system-ui; margin: 24px; max-width: 1100px; }'
-            echo 'img { max-width: 100%; border: 1px solid #ddd; margin: 12px 0; }'
-            echo 'code { background: #f4f4f4; padding: 2px 6px; border-radius: 6px; }'
-            echo '</style>'
-            echo '</head>'
-            echo '<body>'
-            echo '<h1>Layout Renders</h1>'
-            echo '<p>Open the PNG renders in the <code>renders/</code> folder beside this file.</p>'
-            echo '<p>For interactive / 3D viewing, download the GDS from the artifact and open it in KLayout locally.</p>'
-            echo '</body>'
-            echo '</html>'
-          } > "$OUT_DIR/viewer.html"
+          python tools/scripts/build_layout_viewer.py --out-dir "$OUT_DIR"
 
       - name: Upload per-run artifact
         if: always()
@@ -306,6 +286,9 @@ jobs:
           if [ -f "$OUT_DIR/viewer.html" ]; then
             echo "- viewer.html present" >> "$GITHUB_STEP_SUMMARY"
           fi
+          if [ -f "$OUT_DIR/renders/renders_manifest.json" ]; then
+            echo "- renders_manifest.json present" >> "$GITHUB_STEP_SUMMARY"
+          fi
           if [ -d "$OUT_DIR/final/gds" ]; then
             echo "- final/gds present" >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -317,6 +300,9 @@ jobs:
           echo "### Artifact" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- run-${{ matrix.variant }}-${{ matrix.clock_ns }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$OUT_DIR/viewer.html" ]; then
+            echo "- layout viewer: viewer.html included in artifact" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   compare-runs:
     name: compare-runs
