@@ -291,27 +291,60 @@ def build_site(site_root: Path, rows: List[Dict[str, str]]) -> None:
 <title>{title}</title>
 <style>
 body{{font-family:Arial,sans-serif;max-width:1100px;margin:2rem auto;padding:0 1rem;line-height:1.5}}
-code{{background:#f4f4f4;padding:.15rem .35rem;border-radius:4px}}table{{border-collapse:collapse;width:100%}}th,td{{border:1px solid #ddd;padding:.55rem;text-align:left}}th{{background:#f7f7f7}}.pill{{display:inline-block;padding:.2rem .5rem;border-radius:999px;background:#efefef}}
+code{{background:#f4f4f4;padding:.15rem .35rem;border-radius:4px}}
+table{{border-collapse:collapse;width:100%;margin-bottom:1rem}}
+th,td{{border:1px solid #ddd;padding:.55rem;text-align:left}}
+th{{background:#f7f7f7}}
+.pill{{display:inline-block;padding:.2rem .5rem;border-radius:999px;background:#efefef}}
 </style></head><body>
 <h1>{title}</h1>
 <p><a href="../../index.html">Back to ASIC Flow Run Explorer</a></p>
-<p><strong>Status:</strong> <span class="pill">{html.escape(row.get('status',''))}</span></p>
+<p><strong>Status:</strong> <span class="pill">{html.escape(row.get('status', ''))}</span></p>
 <p><strong>Selection rationale:</strong> {reason}</p>
 <ul>
 <li>{gds_link}</li>
 <li><a href="{TT_VIEWER_URL}" target="_blank" rel="noopener noreferrer">Open TinyTapeout Viewer</a></li>
 </ul>
+
+<h2>Timing</h2>
 <table>
 <tr><th>Metric</th><th>Value</th></tr>
-<tr><td>clock_ns</td><td>{html.escape(str(row.get('clock_ns','')))}</td></tr>
-<tr><td>setup_wns_ns</td><td>{html.escape(str(row.get('setup_wns_ns','')))}</td></tr>
-<tr><td>setup_tns_ns</td><td>{html.escape(str(row.get('setup_tns_ns','')))}</td></tr>
-<tr><td>hold_wns_ns</td><td>{html.escape(str(row.get('hold_wns_ns','')))}</td></tr>
-<tr><td>core_area_um2</td><td>{html.escape(str(row.get('core_area_um2','')))}</td></tr>
-<tr><td>power_total_W</td><td>{html.escape(str(row.get('power_total_W','')))}</td></tr>
-<tr><td>drc_errors</td><td>{html.escape(str(row.get('drc_errors','')))}</td></tr>
-<tr><td>lvs_errors</td><td>{html.escape(str(row.get('lvs_errors','')))}</td></tr>
-<tr><td>antenna_violations</td><td>{html.escape(str(row.get('antenna_violations','')))}</td></tr>
+<tr><td>clock_ns</td><td>{html.escape(str(row.get('clock_ns', '')))}</td></tr>
+<tr><td>clock_ns_reported</td><td>{html.escape(str(row.get('clock_ns_reported', '')))}</td></tr>
+<tr><td>setup_wns_ns</td><td>{html.escape(str(row.get('setup_wns_ns', '')))}</td></tr>
+<tr><td>setup_tns_ns</td><td>{html.escape(str(row.get('setup_tns_ns', '')))}</td></tr>
+<tr><td>hold_wns_ns</td><td>{html.escape(str(row.get('hold_wns_ns', '')))}</td></tr>
+<tr><td>hold_tns_ns</td><td>{html.escape(str(row.get('hold_tns_ns', '')))}</td></tr>
+<tr><td>status</td><td>{html.escape(str(row.get('status', '')))}</td></tr>
+</table>
+
+<h2>Area and power</h2>
+<table>
+<tr><th>Metric</th><th>Value</th></tr>
+<tr><td>core_area_um2</td><td>{html.escape(str(row.get('core_area_um2', '')))}</td></tr>
+<tr><td>die_area_um2</td><td>{html.escape(str(row.get('die_area_um2', '')))}</td></tr>
+<tr><td>instance_count</td><td>{html.escape(str(row.get('instance_count', '')))}</td></tr>
+<tr><td>utilization_pct</td><td>{html.escape(str(row.get('utilization_pct', '')))}</td></tr>
+<tr><td>wire_length_um</td><td>{html.escape(str(row.get('wire_length_um', '')))}</td></tr>
+<tr><td>vias_count</td><td>{html.escape(str(row.get('vias_count', '')))}</td></tr>
+<tr><td>power_total_W</td><td>{html.escape(str(row.get('power_total_W', '')))}</td></tr>
+<tr><td>power_internal_W</td><td>{html.escape(str(row.get('power_internal_W', '')))}</td></tr>
+<tr><td>power_switching_W</td><td>{html.escape(str(row.get('power_switching_W', '')))}</td></tr>
+<tr><td>power_leakage_W</td><td>{html.escape(str(row.get('power_leakage_W', '')))}</td></tr>
+<tr><td>power_source</td><td>{html.escape(str(row.get('power_source', '')))}</td></tr>
+</table>
+
+<h2>Signoff and physical</h2>
+<table>
+<tr><th>Metric</th><th>Value</th></tr>
+<tr><td>drc_errors</td><td>{html.escape(str(row.get('drc_errors', '')))}</td></tr>
+<tr><td>drc_errors_klayout</td><td>{html.escape(str(row.get('drc_errors_klayout', '')))}</td></tr>
+<tr><td>drc_errors_magic</td><td>{html.escape(str(row.get('drc_errors_magic', '')))}</td></tr>
+<tr><td>lvs_errors</td><td>{html.escape(str(row.get('lvs_errors', '')))}</td></tr>
+<tr><td>antenna_violations</td><td>{html.escape(str(row.get('antenna_violations', '')))}</td></tr>
+<tr><td>antenna_violating_nets</td><td>{html.escape(str(row.get('antenna_violating_nets', '')))}</td></tr>
+<tr><td>antenna_violating_pins</td><td>{html.escape(str(row.get('antenna_violating_pins', '')))}</td></tr>
+<tr><td>ir_drop_worst_V</td><td>{html.escape(str(row.get('ir_drop_worst_V', '')))}</td></tr>
 </table>
 </body></html>"""
         (run_dir / "index.html").write_text(run_html, encoding="utf-8")

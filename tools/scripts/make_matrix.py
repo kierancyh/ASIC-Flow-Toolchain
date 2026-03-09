@@ -1,72 +1,65 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
 import json
-import os
+from pathlib import Path
+
 import yaml
 
 
-def load_yaml(p: str):
-    with open(p, "r", encoding="utf-8") as f:
+def load_yaml(path: str):
+    with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
-def get_sweep_ns(vcfg: dict) -> list[float]:
-    clock = vcfg.get("clock", {}) or {}
-
-    sweep = None
-    if isinstance(clock, dict):
-        sweep = clock.get("sweep_ns")
-        if sweep is None:
-            sweep = (clock.get("search") or {}).get("sweep_ns")
-
-    if sweep is None:
-        sweep = [101]
-
-    if isinstance(sweep, (int, float)):
-        return [float(sweep)]
-
-    if isinstance(sweep, list):
-        out = []
-        for x in sweep:
-            try:
-                out.append(float(x))
-            except Exception:
-                pass
-        return out if out else [101.0]
-
-    return [101.0]
+def parse_clock_list(text: str):
+    vals = []
+    for part in text.split(","):
+        s = part.strip()
+        if not s:
+            continue
+        vals.append(float(s) if "." in s else int(s))
+    return vals
 
 
 def main():
-    cap_env = os.getenv("MATRIX_CAP", "").strip()
-    cap = None
-    if cap_env:
-        try:
-            cap = int(cap_env)
-        except Exception:
-            cap = None
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--variant", default="", help="Optional safe variant name, e.g. designs_rns_crt")
+    ap.add_argument("--clock-list", default="", help="Optional comma-separated clock list")
+    ap.add_argument("--matrix-cap", default="", help="Optional limit on emitted sweep points")
+    args = ap.parse_args()
 
     manifest = load_yaml("manifest.yaml")
-    include = []
+    experiments = manifest.get("experiments", [])
 
-    for exp in manifest.get("experiments", []):
-        if not exp.get("enabled", False):
+    if args.variant:
+        experiments = [e for e in experiments if e.get("variant", "").replace("/", "_") == args.variant]
+
+    include = []
+    cap = int(args.matrix_cap) if str(args.matrix_cap).strip() else None
+
+    for exp in experiments:
+        if not exp.get("enabled", True):
             continue
 
-        variant_path = exp["variant"]
-        vcfg = load_yaml(os.path.join(variant_path, "variant.yaml"))
+        safe_variant = exp["variant"].replace("/", "_")
+        variant_yaml = Path(exp["variant"]) / "variant.yaml"
+        vcfg = load_yaml(str(variant_yaml))
 
-        sweep_ns = get_sweep_ns(vcfg)
-        if cap is not None and cap > 0:
-            sweep_ns = sweep_ns[:cap]
+        if args.clock_list.strip():
+            clocks = parse_clock_list(args.clock_list)
+        else:
+            clocks = vcfg.get("clocks_ns", []) or exp.get("clocks_ns", [])
 
-        for ns in sweep_ns:
-            include.append(
-                {
-                    "variant": variant_path.replace("/", "_"),
-                    "variant_name": variant_path.replace("/", "_"),
-                    "variant_path": variant_path,
-                    "clock_ns": float(ns),
-                }
-            )
+        if cap is not None:
+            clocks = clocks[:cap]
+
+        for clk in clocks:
+            include.append({
+                "variant": safe_variant,
+                "clock_ns": clk,
+            })
 
     print(json.dumps(include))
 

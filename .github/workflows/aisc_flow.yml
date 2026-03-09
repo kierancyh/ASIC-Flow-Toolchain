@@ -5,10 +5,62 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
+      variant:
+        description: "Optional safe variant name, e.g. designs_rns_crt"
+        required: false
+        default: ""
+        type: string
+
+      clock_list:
+        description: "Optional comma-separated sweep, e.g. 150,101,60,40,30,20,17"
+        required: false
+        default: ""
+        type: string
+
       matrix_cap:
         description: "Optional cap on number of sweep points"
         required: false
         default: ""
+        type: number
+
+      synth_strategy:
+        description: "Synthesis strategy"
+        required: false
+        default: "AREA 3"
+        type: choice
+        options:
+          - AREA 0
+          - AREA 1
+          - AREA 2
+          - AREA 3
+          - DELAY 0
+          - DELAY 1
+          - DELAY 2
+          - DELAY 3
+
+      run_antenna_repair:
+        description: "Enable antenna repair"
+        required: false
+        default: true
+        type: boolean
+
+      run_heuristic_diode_insertion:
+        description: "Enable heuristic diode insertion"
+        required: false
+        default: true
+        type: boolean
+
+      run_post_grt_design_repair:
+        description: "Enable post-GRT design repair"
+        required: false
+        default: true
+        type: boolean
+
+      run_post_grt_resizer_timing:
+        description: "Enable post-GRT resizer timing"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -24,7 +76,7 @@ env:
 
 jobs:
   plan:
-    name: plan
+    name: Plan
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.mk.outputs.matrix }}
@@ -45,9 +97,27 @@ jobs:
       - name: Build matrix from manifest
         id: mk
         shell: bash
+        env:
+          INPUT_VARIANT: ${{ inputs.variant }}
+          INPUT_CLOCK_LIST: ${{ inputs.clock_list }}
+          INPUT_MATRIX_CAP: ${{ inputs.matrix_cap }}
         run: |
-          CAP="${{ github.event.inputs.matrix_cap }}"
-          MATRIX_JSON="$(MATRIX_CAP="${CAP}" python tools/scripts/make_matrix.py)"
+          ARGS=()
+
+          if [ -n "${INPUT_VARIANT}" ]; then
+            ARGS+=(--variant "${INPUT_VARIANT}")
+          fi
+
+          if [ -n "${INPUT_CLOCK_LIST}" ]; then
+            ARGS+=(--clock-list "${INPUT_CLOCK_LIST}")
+          fi
+
+          if [ -n "${INPUT_MATRIX_CAP}" ]; then
+            ARGS+=(--matrix-cap "${INPUT_MATRIX_CAP}")
+          fi
+
+          MATRIX_JSON="$(python tools/scripts/make_matrix.py "${ARGS[@]}")"
+
           {
             echo 'matrix<<EOF'
             echo "$MATRIX_JSON"
@@ -55,7 +125,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   run-flow:
-    name: run-flow (${{ matrix.variant }}, ${{ matrix.clock_ns }} ns)
+    name: Run-Flow (${{ matrix.variant }}, ${{ matrix.clock_ns }} ns)
     needs: plan
     runs-on: ubuntu-24.04
     strategy:
@@ -96,6 +166,11 @@ jobs:
             --variant "${{ matrix.variant }}" \
             --clock_ns "${{ matrix.clock_ns }}" \
             --pdk-root "${PDK_ROOT}" \
+            --synth-strategy "${{ inputs.synth_strategy || 'AREA 3' }}" \
+            --run-antenna-repair "${{ inputs.run_antenna_repair }}" \
+            --run-heuristic-diode-insertion "${{ inputs.run_heuristic_diode_insertion }}" \
+            --run-post-grt-design-repair "${{ inputs.run_post_grt_design_repair }}" \
+            --run-post-grt-resizer-timing "${{ inputs.run_post_grt_resizer_timing }}" \
             --out config.json
 
       - name: Pull OpenLane2 container
@@ -278,8 +353,21 @@ jobs:
           echo "- [Download artifact bundle](${ARTIFACT_URL})" >> "$GITHUB_STEP_SUMMARY"
           echo "- Artifact name: run-${{ matrix.variant }}-${{ matrix.clock_ns }}" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Rerun hints
+        if: always()
+        shell: bash
+        run: |
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Rerun with different knobs" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Use the **Run workflow** button in the Actions tab to change:" >> "$GITHUB_STEP_SUMMARY"
+          echo "- variant" >> "$GITHUB_STEP_SUMMARY"
+          echo "- clock_list" >> "$GITHUB_STEP_SUMMARY"
+          echo "- synth_strategy" >> "$GITHUB_STEP_SUMMARY"
+          echo "- antenna repair booleans" >> "$GITHUB_STEP_SUMMARY"
+
   compare-runs:
-    name: compare-runs
+    name: Compare-Runs
     needs: run-flow
     if: always()
     runs-on: ubuntu-24.04
