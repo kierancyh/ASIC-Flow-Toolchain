@@ -1,13 +1,15 @@
 name: rns_crt
 pdk: sky130A
 top_module: rns_top_crt
+
 clock:
   port: clk
-  mode: sweep
-  # GitHub-hosted default sweep (keep small)
-  sweep_ns: [150, 101, 60, 40, 30, 20, 17]
+  mode: auto
+  start_ns: 60
+
 sources:
   - src/**/*.v
+
 ll_policy:
   sdc: ../_shared/ll_policy/constraints.sdc
   power_fair_tcl: ../_shared/ll_policy/power_fair.tcl
