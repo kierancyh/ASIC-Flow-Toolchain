@@ -5,21 +5,69 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
+      search_mode:
+        description: "Sweep mode"
+        required: false
+        default: "fixed"
+        type: choice
+        options:
+          - fixed
+          - auto
+
       variant:
         description: "Optional safe variant name, e.g. designs_rns_crt"
         required: false
         default: ""
         type: string
+
       clock_list:
-        description: "Optional comma-separated sweep, e.g. 150,101,60,40,30,20,17"
+        description: "Fixed mode only: comma-separated sweep, e.g. 150,101,60,40,30,20,17"
         required: false
         default: ""
         type: string
+
       matrix_cap:
-        description: "Optional cap on number of sweep points"
+        description: "Fixed mode only: optional cap on number of sweep points"
         required: false
         default: ""
         type: number
+
+      start_clock_ns:
+        description: "Auto mode: starting clock period in ns"
+        required: false
+        default: "60"
+        type: string
+
+      min_clock_ns:
+        description: "Auto mode: minimum clock period in ns"
+        required: false
+        default: "5"
+        type: string
+
+      max_clock_ns:
+        description: "Auto mode: maximum clock period in ns"
+        required: false
+        default: "200"
+        type: string
+
+      initial_step_ns:
+        description: "Auto mode: initial search step in ns"
+        required: false
+        default: "20"
+        type: string
+
+      tolerance_ns:
+        description: "Auto mode: stop when pass/fail interval is <= this value"
+        required: false
+        default: "1"
+        type: string
+
+      max_iters:
+        description: "Auto mode: maximum number of attempts"
+        required: false
+        default: "8"
+        type: number
+
       synth_strategy:
         description: "Synthesis strategy"
         required: false
@@ -34,21 +82,25 @@ on:
           - DELAY 1
           - DELAY 2
           - DELAY 3
+
       run_antenna_repair:
         description: "Enable antenna repair"
         required: false
         default: true
         type: boolean
+
       run_heuristic_diode_insertion:
         description: "Enable heuristic diode insertion"
         required: false
         default: true
         type: boolean
+
       run_post_grt_design_repair:
         description: "Enable post-GRT design repair"
         required: false
         default: true
         type: boolean
+
       run_post_grt_resizer_timing:
         description: "Enable post-GRT resizer timing"
         required: false
@@ -73,6 +125,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.mk.outputs.matrix }}
+      resolved_variant: ${{ steps.mk.outputs.resolved_variant }}
     steps:
       - uses: actions/checkout@v4
 
@@ -87,67 +140,91 @@ jobs:
           pip install -r requirements.txt
           pip install "volare==0.20.6" "pandas" "pyyaml"
 
-      - name: Build matrix from manifest
+      - name: Build plan
         id: mk
         shell: bash
         env:
+          INPUT_SEARCH_MODE: ${{ inputs.search_mode }}
           INPUT_VARIANT: ${{ inputs.variant }}
           INPUT_CLOCK_LIST: ${{ inputs.clock_list }}
           INPUT_MATRIX_CAP: ${{ inputs.matrix_cap }}
+          INPUT_START_CLOCK_NS: ${{ inputs.start_clock_ns }}
         run: |
           set -euo pipefail
 
-          ARGS=()
-
-          if [ -n "${INPUT_VARIANT}" ]; then
-            ARGS+=(--variant "${INPUT_VARIANT}")
+          RESOLVED_VARIANT="${INPUT_VARIANT}"
+          if [ -z "${RESOLVED_VARIANT}" ]; then
+            RESOLVED_VARIANT="$(python -c 'import yaml; d=yaml.safe_load(open("manifest.yaml")); ex=[e["variant"].replace("/", "_") for e in d.get("experiments", []) if e.get("enabled", True)]; print(ex[0] if ex else "")')"
           fi
 
-          if [ -n "${INPUT_CLOCK_LIST}" ]; then
-            ARGS+=(--clock-list "${INPUT_CLOCK_LIST}")
+          if [ -z "${RESOLVED_VARIANT}" ]; then
+            echo "ERROR: no enabled variant found in manifest.yaml"
+            exit 1
           fi
 
-          if [ -n "${INPUT_MATRIX_CAP}" ]; then
-            ARGS+=(--matrix-cap "${INPUT_MATRIX_CAP}")
+          if [ "${INPUT_SEARCH_MODE}" = "auto" ]; then
+            MATRIX_JSON="$(python -c 'import json,sys; print(json.dumps([{"variant": sys.argv[1], "clock_ns": float(sys.argv[2])}]))' "${RESOLVED_VARIANT}" "${INPUT_START_CLOCK_NS}")"
+          else
+            ARGS=()
+            if [ -n "${RESOLVED_VARIANT}" ]; then
+              ARGS+=(--variant "${RESOLVED_VARIANT}")
+            fi
+            if [ -n "${INPUT_CLOCK_LIST}" ]; then
+              ARGS+=(--clock-list "${INPUT_CLOCK_LIST}")
+            fi
+            if [ -n "${INPUT_MATRIX_CAP}" ]; then
+              ARGS+=(--matrix-cap "${INPUT_MATRIX_CAP}")
+            fi
+            MATRIX_JSON="$(python tools/scripts/make_matrix.py "${ARGS[@]}")"
           fi
 
-          MATRIX_JSON="$(python tools/scripts/make_matrix.py "${ARGS[@]}")"
+          echo "Resolved variant: ${RESOLVED_VARIANT}"
+          echo "Matrix JSON: ${MATRIX_JSON}"
 
-          echo "Matrix JSON:"
-          echo "${MATRIX_JSON}"
-
-          python - "${MATRIX_JSON}" <<'PY'
-          import json
-          import sys
-
-          data = json.loads(sys.argv[1])
-          if not isinstance(data, list) or len(data) == 0:
-              raise SystemExit("ERROR: matrix is empty; check manifest.yaml and variant.yaml clock sweep settings.")
-          print(f"Validated matrix entries: {len(data)}")
-          PY
+          python -c 'import json,sys; d=json.loads(sys.argv[1]); assert isinstance(d,list) and len(d)>0, "ERROR: matrix is empty"; print(f"Validated matrix entries: {len(d)}")' "${MATRIX_JSON}"
 
           {
             echo 'matrix<<EOF'
-            echo "$MATRIX_JSON"
+            echo "${MATRIX_JSON}"
             echo 'EOF'
+            echo "resolved_variant=${RESOLVED_VARIANT}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Plan Summary
         if: always()
         shell: bash
         env:
+          INPUT_SEARCH_MODE: ${{ inputs.search_mode }}
           INPUT_VARIANT: ${{ inputs.variant }}
           INPUT_CLOCK_LIST: ${{ inputs.clock_list }}
           INPUT_MATRIX_CAP: ${{ inputs.matrix_cap }}
+          INPUT_START_CLOCK_NS: ${{ inputs.start_clock_ns }}
+          INPUT_MIN_CLOCK_NS: ${{ inputs.min_clock_ns }}
+          INPUT_MAX_CLOCK_NS: ${{ inputs.max_clock_ns }}
+          INPUT_INITIAL_STEP_NS: ${{ inputs.initial_step_ns }}
+          INPUT_TOLERANCE_NS: ${{ inputs.tolerance_ns }}
+          INPUT_MAX_ITERS: ${{ inputs.max_iters }}
         run: |
           echo "# Plan" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Variant input: \`${INPUT_VARIANT:-<all enabled>}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Clock list input: \`${INPUT_CLOCK_LIST:-<from variant.yaml>}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Matrix cap input: \`${INPUT_MATRIX_CAP:-<none>}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Search mode: \`${INPUT_SEARCH_MODE:-fixed}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Variant: \`${INPUT_VARIANT:-<first enabled variant>}\`" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${INPUT_SEARCH_MODE:-fixed}" = "auto" ]; then
+            echo "- Start clock: \`${INPUT_START_CLOCK_NS:-60}\` ns" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Min clock: \`${INPUT_MIN_CLOCK_NS:-5}\` ns" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Max clock: \`${INPUT_MAX_CLOCK_NS:-200}\` ns" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Initial step: \`${INPUT_INITIAL_STEP_NS:-20}\` ns" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Tolerance: \`${INPUT_TOLERANCE_NS:-1}\` ns" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Max iterations: \`${INPUT_MAX_ITERS:-8}\`" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Clock list: \`${INPUT_CLOCK_LIST:-<from variant.yaml>}\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Matrix cap: \`${INPUT_MATRIX_CAP:-<none>}\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   run-flow:
     name: Run-Flow (${{ matrix.variant }}, ${{ matrix.clock_ns }} ns)
+    if: ${{ inputs.search_mode != 'auto' }}
     needs: plan
     runs-on: ubuntu-24.04
     strategy:
@@ -227,24 +304,15 @@ jobs:
         run: |
           set -e
 
-          if [ ! -d runs ]; then
-            echo "No runs/ directory produced."
-            echo "run_dir=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
           FINAL_DIR="$(find runs -type f -path '*/final/metrics.json' -printf '%T@ %h\n' 2>/dev/null | sort -nr | head -n 1 | cut -d' ' -f2-)"
-          if [ -z "$FINAL_DIR" ]; then
+          if [ -z "${FINAL_DIR}" ]; then
             echo "No runs/**/final/metrics.json found."
-            find runs -maxdepth 4 -type d || true
             echo "run_dir=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          RUN_DIR="$(dirname "$FINAL_DIR")"
-          echo "Detected FINAL_DIR=$FINAL_DIR"
-          echo "Detected RUN_DIR=$RUN_DIR"
-          echo "run_dir=$RUN_DIR" >> "$GITHUB_OUTPUT"
+          RUN_DIR="$(dirname "${FINAL_DIR}")"
+          echo "run_dir=${RUN_DIR}" >> "$GITHUB_OUTPUT"
 
       - name: Collect outputs
         if: always()
@@ -254,9 +322,9 @@ jobs:
 
           RUN_ID="${{ github.run_id }}"
           OUT_DIR="ci_out/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${RUN_ID}"
-          mkdir -p "$OUT_DIR"
+          mkdir -p "${OUT_DIR}"
 
-          cat > "$OUT_DIR/run_meta.json" <<EOF
+          cat > "${OUT_DIR}/run_meta.json" <<EOF
           {
             "variant": "${{ matrix.variant }}",
             "clock_ns_requested": "${{ matrix.clock_ns }}",
@@ -265,36 +333,23 @@ jobs:
           }
           EOF
 
-          if [ -d runs ]; then
-            cp -rv runs "$OUT_DIR/" || true
-          fi
-
           RUN_DIR="${{ steps.findrun.outputs.run_dir }}"
-          echo "RUN_DIR used: ${RUN_DIR:-<none>}" > "$OUT_DIR/run_dir_used.txt"
+          echo "RUN_DIR used: ${RUN_DIR:-<none>}" > "${OUT_DIR}/run_dir_used.txt"
 
-          if [ -n "$RUN_DIR" ]; then
-            python tools/scripts/extract_metrics.py "$RUN_DIR" --out "$OUT_DIR" --clock-ns "${{ matrix.clock_ns }}" || true
-            python tools/scripts/render_gds.py --run-root "$RUN_DIR" --out "$OUT_DIR/renders" || true
+          if [ -n "${RUN_DIR}" ]; then
+            python tools/scripts/extract_metrics.py "${RUN_DIR}" --out "${OUT_DIR}" --clock-ns "${{ matrix.clock_ns }}" || true
+            python tools/scripts/render_gds.py --run-root "${RUN_DIR}" --out "${OUT_DIR}/renders" || true
+            python tools/scripts/build_layout_viewer.py --out-dir "${OUT_DIR}" || true
 
-            if [ -f "$RUN_DIR/final/metrics.json" ]; then
-              cp -v "$RUN_DIR/final/metrics.json" "$OUT_DIR/metrics_raw.json" || true
+            if [ -f "${RUN_DIR}/final/metrics.json" ]; then
+              cp -v "${RUN_DIR}/final/metrics.json" "${OUT_DIR}/metrics_raw.json" || true
             fi
 
-            if [ -d "$RUN_DIR/final/gds" ]; then
-              mkdir -p "$OUT_DIR/final/gds"
-              cp -rv "$RUN_DIR/final/gds/." "$OUT_DIR/final/gds/" || true
+            if [ -d "${RUN_DIR}/final/gds" ]; then
+              mkdir -p "${OUT_DIR}/final/gds"
+              cp -rv "${RUN_DIR}/final/gds/." "${OUT_DIR}/final/gds/" || true
             fi
-          else
-            echo "No RUN_DIR found; skipping metrics/render extraction" > "$OUT_DIR/provenance.txt"
           fi
-
-      - name: Create per-run viewer.html
-        if: always()
-        shell: bash
-        env:
-          OUT_DIR: ci_out/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${{ github.run_id }}
-        run: |
-          python tools/scripts/build_layout_viewer.py --out-dir "$OUT_DIR"
 
       - name: Upload per-run artifact
         if: always()
@@ -337,11 +392,9 @@ jobs:
             done
 
             echo "### Timing" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "| metric | value |" >> "$GITHUB_STEP_SUMMARY"
             echo "|---|---:|" >> "$GITHUB_STEP_SUMMARY"
             echo "| clock_ns | ${M[clock_ns]:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| clock_ns_reported | ${M[clock_ns_reported]:-} |" >> "$GITHUB_STEP_SUMMARY"
             echo "| setup_wns_ns | ${M[setup_wns_ns]:-} |" >> "$GITHUB_STEP_SUMMARY"
             echo "| setup_tns_ns | ${M[setup_tns_ns]:-} |" >> "$GITHUB_STEP_SUMMARY"
             echo "| hold_wns_ns | ${M[hold_wns_ns]:-} |" >> "$GITHUB_STEP_SUMMARY"
@@ -349,62 +402,92 @@ jobs:
             echo "| status | ${M[status]:-} |" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
 
-            echo "### Area and power" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "| metric | value |" >> "$GITHUB_STEP_SUMMARY"
-            echo "|---|---:|" >> "$GITHUB_STEP_SUMMARY"
-            echo "| core_area_um2 | ${M[core_area_um2]:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| die_area_um2 | ${M[die_area_um2]:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| instance_count | ${M[instance_count]:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| utilization_pct | ${M[utilization_pct]:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| wire_length_um | ${M[wire_length_um]:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| vias_count | ${M[vias_count]:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| power_total_W | ${M[power_total_W]:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| power_internal_W | ${M[power_internal_W]:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| power_switching_W | ${M[power_switching_W]:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| power_leakage_W | ${M[power_leakage_W]:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| power_source | ${M[power_source]:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-
             echo "### Signoff and physical" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "| metric | value |" >> "$GITHUB_STEP_SUMMARY"
             echo "|---|---:|" >> "$GITHUB_STEP_SUMMARY"
             echo "| drc_errors | ${M[drc_errors]:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| drc_errors_klayout | ${M[drc_errors_klayout]:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| drc_errors_magic | ${M[drc_errors_magic]:-} |" >> "$GITHUB_STEP_SUMMARY"
             echo "| lvs_errors | ${M[lvs_errors]:-} |" >> "$GITHUB_STEP_SUMMARY"
             echo "| antenna_violations | ${M[antenna_violations]:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| antenna_violating_nets | ${M[antenna_violating_nets]:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| antenna_violating_pins | ${M[antenna_violating_pins]:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "| ir_drop_worst_V | ${M[ir_drop_worst_V]:-} |" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "- No metrics.csv produced." >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
           fi
 
           echo "### Artifact" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- [Download artifact bundle](${ARTIFACT_URL})" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Artifact name: run-${{ matrix.variant }}-${{ matrix.clock_ns }}" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Rerun hints
-        if: always()
-        shell: bash
+  autoflow:
+    name: Autoflow (${{ needs.plan.outputs.resolved_variant }})
+    if: ${{ inputs.search_mode == 'auto' }}
+    needs: plan
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install python deps + volare
         run: |
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "### Rerun with different knobs" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Use the **Run workflow** button in the Actions tab to change:" >> "$GITHUB_STEP_SUMMARY"
-          echo "- variant" >> "$GITHUB_STEP_SUMMARY"
-          echo "- clock_list" >> "$GITHUB_STEP_SUMMARY"
-          echo "- synth_strategy" >> "$GITHUB_STEP_SUMMARY"
-          echo "- antenna repair booleans" >> "$GITHUB_STEP_SUMMARY"
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install "volare==0.20.6" "pandas" "pyyaml"
+
+      - name: Cache Sky130 PDK
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PDK_ROOT }}
+          key: ${{ runner.os }}-pdk-${{ env.PDK_NAME }}-${{ env.PDK_VERSION }}
+
+      - name: Install Sky130 PDK
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          volare enable --pdk "${PDK_NAME}" "${PDK_VERSION}" --pdk-root "${PDK_ROOT}"
+          test -d "${PDK_ROOT}/sky130A" || (echo "PDK not found at ${PDK_ROOT}/sky130A" && exit 1)
+
+      - name: Pull OpenLane2 container
+        run: docker pull "${OPENLANE2_IMAGE}"
+
+      - name: Run auto sweep
+        env:
+          INPUT_SYNTH_STRATEGY: ${{ inputs.synth_strategy }}
+          INPUT_RUN_ANTENNA_REPAIR: ${{ inputs.run_antenna_repair }}
+          INPUT_RUN_HEURISTIC_DIODE_INSERTION: ${{ inputs.run_heuristic_diode_insertion }}
+          INPUT_RUN_POST_GRT_DESIGN_REPAIR: ${{ inputs.run_post_grt_design_repair }}
+          INPUT_RUN_POST_GRT_RESIZER_TIMING: ${{ inputs.run_post_grt_resizer_timing }}
+          GITHUB_STEP_SUMMARY_PATH: ${{ github.step_summary }}
+        run: |
+          set -euo pipefail
+
+          python tools/scripts/autoflow.py \
+            --variant "${{ needs.plan.outputs.resolved_variant }}" \
+            --pdk-root "${PDK_ROOT}" \
+            --openlane-image "${OPENLANE2_IMAGE}" \
+            --start-clock-ns "${{ inputs.start_clock_ns }}" \
+            --min-clock-ns "${{ inputs.min_clock_ns }}" \
+            --max-clock-ns "${{ inputs.max_clock_ns }}" \
+            --initial-step-ns "${{ inputs.initial_step_ns }}" \
+            --tolerance-ns "${{ inputs.tolerance_ns }}" \
+            --max-iters "${{ inputs.max_iters }}" \
+            --synth-strategy "${INPUT_SYNTH_STRATEGY:-AREA 3}" \
+            --run-antenna-repair "${INPUT_RUN_ANTENNA_REPAIR:-true}" \
+            --run-heuristic-diode-insertion "${INPUT_RUN_HEURISTIC_DIODE_INSERTION:-true}" \
+            --run-post-grt-design-repair "${INPUT_RUN_POST_GRT_DESIGN_REPAIR:-true}" \
+            --run-post-grt-resizer-timing "${INPUT_RUN_POST_GRT_RESIZER_TIMING:-false}" \
+            --out-root "ci_out/${{ needs.plan.outputs.resolved_variant }}"
+
+      - name: Upload autoflow artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autoflow-${{ needs.plan.outputs.resolved_variant }}
+          path: ci_out/
 
   compare-runs:
     name: Compare-Runs
-    needs: run-flow
+    needs: [run-flow, autoflow]
     if: always()
     runs-on: ubuntu-24.04
     steps:
@@ -428,7 +511,7 @@ jobs:
 
       - name: Show downloaded structure
         run: |
-          find _collected -maxdepth 8 -type f | sort | sed -n '1,300p'
+          find _collected -maxdepth 8 -type f | sort | sed -n '1,400p'
 
       - name: Build comparison summary, best bundle, and run explorer site
         run: |
@@ -495,4 +578,3 @@ jobs:
           echo "# Published Run Explorer" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- [Open ASIC Flow Run Explorer](${{ steps.deployment.outputs.page_url }})" >> "$GITHUB_STEP_SUMMARY"
-          echo "- [Open TinyTapeout Viewer](https://gds-viewer.tinytapeout.com/)" >> "$GITHUB_STEP_SUMMARY"

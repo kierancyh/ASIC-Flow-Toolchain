@@ -398,7 +398,6 @@ table{{border-collapse:collapse;width:100%}}th,td{{border:1px solid #ddd;padding
 <tbody>
 {''.join(rows_html)}
 </tbody></table>
-<p style="margin-top:1rem">Quick access: <a href="{TT_VIEWER_URL}" target="_blank" rel="noopener noreferrer">https://gds-viewer.tinytapeout.com/</a></p>
 </body></html>"""
     (site_root / "index.html").write_text(index_html, encoding="utf-8")
 
