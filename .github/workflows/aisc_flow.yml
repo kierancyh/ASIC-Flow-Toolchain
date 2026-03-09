@@ -124,34 +124,34 @@ jobs:
           echo "${MATRIX_JSON}"
 
           python - "${MATRIX_JSON}" <<'PY'
-import json
-import sys
+          import json
+          import sys
 
-data = json.loads(sys.argv[1])
-if not isinstance(data, list) or len(data) == 0:
-    raise SystemExit("ERROR: matrix is empty; check manifest.yaml and variant.yaml clock sweep settings.")
-print(f"Validated matrix entries: {len(data)}")
-PY
+          data = json.loads(sys.argv[1])
+          if not isinstance(data, list) or len(data) == 0:
+              raise SystemExit("ERROR: matrix is empty; check manifest.yaml and variant.yaml clock sweep settings.")
+          print(f"Validated matrix entries: {len(data)}")
+          PY
 
-          {
-            echo 'matrix<<EOF'
-            echo "$MATRIX_JSON"
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
+                    {
+                      echo 'matrix<<EOF'
+                      echo "$MATRIX_JSON"
+                      echo 'EOF'
+                    } >> "$GITHUB_OUTPUT"
 
-      - name: Plan Summary
-        if: always()
-        shell: bash
-        env:
-          INPUT_VARIANT: ${{ inputs.variant }}
-          INPUT_CLOCK_LIST: ${{ inputs.clock_list }}
-          INPUT_MATRIX_CAP: ${{ inputs.matrix_cap }}
-        run: |
-          echo "# Plan" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Variant input: \`${INPUT_VARIANT:-<all enabled>}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Clock list input: \`${INPUT_CLOCK_LIST:-<from variant.yaml>}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Matrix cap input: \`${INPUT_MATRIX_CAP:-<none>}\`" >> "$GITHUB_STEP_SUMMARY"
+                - name: Plan Summary
+                  if: always()
+                  shell: bash
+                  env:
+                    INPUT_VARIANT: ${{ inputs.variant }}
+                    INPUT_CLOCK_LIST: ${{ inputs.clock_list }}
+                    INPUT_MATRIX_CAP: ${{ inputs.matrix_cap }}
+          run: |
+            echo "# Plan" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Variant input: \`${INPUT_VARIANT:-<all enabled>}\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Clock list input: \`${INPUT_CLOCK_LIST:-<from variant.yaml>}\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Matrix cap input: \`${INPUT_MATRIX_CAP:-<none>}\`" >> "$GITHUB_STEP_SUMMARY"
 
   run-flow:
     name: Run-Flow (${{ matrix.variant }}, ${{ matrix.clock_ns }} ns)
@@ -190,16 +190,30 @@ PY
           test -d "${PDK_ROOT}/sky130A" || (echo "PDK not found at ${PDK_ROOT}/sky130A" && exit 1)
 
       - name: Generate config.json
+        env:
+          INPUT_SYNTH_STRATEGY: ${{ inputs.synth_strategy }}
+          INPUT_RUN_ANTENNA_REPAIR: ${{ inputs.run_antenna_repair }}
+          INPUT_RUN_HEURISTIC_DIODE_INSERTION: ${{ inputs.run_heuristic_diode_insertion }}
+          INPUT_RUN_POST_GRT_DESIGN_REPAIR: ${{ inputs.run_post_grt_design_repair }}
+          INPUT_RUN_POST_GRT_RESIZER_TIMING: ${{ inputs.run_post_grt_resizer_timing }}
         run: |
+          set -euo pipefail
+
+          SYNTH_STRATEGY="${INPUT_SYNTH_STRATEGY:-AREA 3}"
+          RUN_ANTENNA_REPAIR="${INPUT_RUN_ANTENNA_REPAIR:-true}"
+          RUN_HEURISTIC_DIODE_INSERTION="${INPUT_RUN_HEURISTIC_DIODE_INSERTION:-true}"
+          RUN_POST_GRT_DESIGN_REPAIR="${INPUT_RUN_POST_GRT_DESIGN_REPAIR:-true}"
+          RUN_POST_GRT_RESIZER_TIMING="${INPUT_RUN_POST_GRT_RESIZER_TIMING:-false}"
+
           python tools/scripts/gen_config.py \
             --variant "${{ matrix.variant }}" \
             --clock_ns "${{ matrix.clock_ns }}" \
             --pdk-root "${PDK_ROOT}" \
-            --synth-strategy "${{ inputs.synth_strategy || 'AREA 3' }}" \
-            --run-antenna-repair "${{ inputs.run_antenna_repair }}" \
-            --run-heuristic-diode-insertion "${{ inputs.run_heuristic_diode_insertion }}" \
-            --run-post-grt-design-repair "${{ inputs.run_post_grt_design_repair }}" \
-            --run-post-grt-resizer-timing "${{ inputs.run_post_grt_resizer_timing }}" \
+            --synth-strategy "${SYNTH_STRATEGY}" \
+            --run-antenna-repair "${RUN_ANTENNA_REPAIR}" \
+            --run-heuristic-diode-insertion "${RUN_HEURISTIC_DIODE_INSERTION}" \
+            --run-post-grt-design-repair "${RUN_POST_GRT_DESIGN_REPAIR}" \
+            --run-post-grt-resizer-timing "${RUN_POST_GRT_RESIZER_TIMING}" \
             --out config.json
 
       - name: Pull OpenLane2 container
