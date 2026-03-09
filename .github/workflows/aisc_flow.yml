@@ -232,24 +232,41 @@ jobs:
             echo "" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          echo "### Artifacts" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Key files" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Artifact: \`run-${{ matrix.variant }}-${{ matrix.clock_ns }}\`" >> "$GITHUB_STEP_SUMMARY"
-          if [ -f "$OUT_DIR/viewer.html" ]; then
-            echo "- viewer.html included" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$OUT_DIR/metrics.csv" ]; then
+            echo "- metrics.csv present" >> "$GITHUB_STEP_SUMMARY"
           fi
           if [ -f "$OUT_DIR/metrics_raw.json" ]; then
-            echo "- metrics_raw.json included" >> "$GITHUB_STEP_SUMMARY"
+            echo "- metrics_raw.json present" >> "$GITHUB_STEP_SUMMARY"
           fi
           if [ -f "$OUT_DIR/run_meta.json" ]; then
-            echo "- run_meta.json included" >> "$GITHUB_STEP_SUMMARY"
+            echo "- run_meta.json present" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f "$OUT_DIR/viewer.html" ]; then
+            echo "- viewer.html present" >> "$GITHUB_STEP_SUMMARY"
           fi
           if [ -d "$OUT_DIR/final/gds" ]; then
-            echo "- GDS included" >> "$GITHUB_STEP_SUMMARY"
+            echo "- final/gds present" >> "$GITHUB_STEP_SUMMARY"
           fi
           if [ -d "$OUT_DIR/renders" ]; then
-            echo "- PNG renders included" >> "$GITHUB_STEP_SUMMARY"
+            echo "- renders present" >> "$GITHUB_STEP_SUMMARY"
           fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "### Artifact" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- run-${{ matrix.variant }}-${{ matrix.clock_ns }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Debug output tree
+        if: always()
+        shell: bash
+        env:
+          OUT_DIR: ci_out/${{ matrix.variant }}/clk_${{ matrix.clock_ns }}ns_${{ github.run_id }}
+        run: |
+          echo "## Output tree" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          find "$OUT_DIR" -maxdepth 4 -type f | sort | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY" || true
 
   compare-runs:
     name: compare-runs
@@ -274,6 +291,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: _collected
+
+      - name: Show downloaded structure
+        run: |
+          find _collected -maxdepth 8 -type f | sort | sed -n '1,300p'
 
       - name: Build comparison summary
         run: |
