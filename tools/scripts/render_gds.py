@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 from pathlib import Path
 from typing import List, Tuple
@@ -39,6 +40,7 @@ def render_one(script: Path, gds: Path, out_png: Path, size: Tuple[int, int]) ->
     print("Wrote:", out_png)
 
 
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-root", required=True, help="Run directory, e.g. runs/RUN_...")
@@ -50,13 +52,31 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     gds = find_gds(run_root)
+    manifest = {
+        "gds": str(gds) if gds else "",
+        "renderer": "klayout" if shutil.which("klayout") else "unavailable",
+        "renders": [],
+        "status": "SKIPPED",
+    }
+
     if gds is None:
-        print(f"No GDS found under run root: {run_root}")
+        manifest["reason"] = f"No GDS found under run root: {run_root}"
+        (out_dir / "renders_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        print(manifest["reason"])
         return
 
     script = Path("tools/scripts/klayout_render.py")
     if not script.exists():
-        raise SystemExit("Missing tools/scripts/klayout_render.py")
+        manifest["reason"] = "Missing tools/scripts/klayout_render.py"
+        (out_dir / "renders_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        print(manifest["reason"])
+        return
+
+    if shutil.which("klayout") is None:
+        manifest["reason"] = "klayout executable not found; render step skipped by design"
+        (out_dir / "renders_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        print(manifest["reason"])
+        return
 
     stem = gds.stem
     views: List[Tuple[str, Tuple[int, int]]] = [
@@ -81,14 +101,9 @@ def main() -> None:
         except subprocess.CalledProcessError as e:
             print(f"Render failed for {suffix}: {e}")
 
-    manifest = {
-        "gds": str(gds),
-        "renders": written,
-    }
-    (out_dir / "renders_manifest.json").write_text(
-        json.dumps(manifest, indent=2),
-        encoding="utf-8",
-    )
+    manifest["status"] = "OK" if written else "FAILED"
+    manifest["renders"] = written
+    (out_dir / "renders_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     print("Wrote:", out_dir / "renders_manifest.json")
 
 

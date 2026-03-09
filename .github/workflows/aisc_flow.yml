@@ -19,6 +19,7 @@ env:
   PDK_ROOT: /home/runner/pdk
   OPENLANE2_IMAGE: ghcr.io/efabless/openlane2:2.4.0.dev1
   PYTHON_VERSION: "3.11"
+  VIEWER_URL_FORMAT: ""
 
 jobs:
   plan:
@@ -152,12 +153,12 @@ jobs:
           }
           EOF
 
+          RUN_DIR="${{ steps.findrun.outputs.run_dir }}"
+          echo "RUN_DIR used: ${RUN_DIR:-<none>}" > "$OUT_DIR/run_dir_used.txt"
+
           if [ -d runs ]; then
             cp -rv runs "$OUT_DIR/" || true
           fi
-
-          RUN_DIR="${{ steps.findrun.outputs.run_dir }}"
-          echo "RUN_DIR used: ${RUN_DIR:-<none>}" > "$OUT_DIR/run_dir_used.txt"
 
           if [ -n "$RUN_DIR" ]; then
             python tools/scripts/extract_metrics.py "$RUN_DIR" --out "$OUT_DIR" --clock-ns "${{ matrix.clock_ns }}" || true
@@ -271,44 +272,28 @@ jobs:
 
           echo "### Key files" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          if [ -f "$OUT_DIR/metrics.csv" ]; then
-            echo "- metrics.csv present" >> "$GITHUB_STEP_SUMMARY"
-          fi
-          if [ -f "$OUT_DIR/metrics.md" ]; then
-            echo "- metrics.md present" >> "$GITHUB_STEP_SUMMARY"
-          fi
-          if [ -f "$OUT_DIR/metrics_raw.json" ]; then
-            echo "- metrics_raw.json present" >> "$GITHUB_STEP_SUMMARY"
-          fi
-          if [ -f "$OUT_DIR/run_meta.json" ]; then
-            echo "- run_meta.json present" >> "$GITHUB_STEP_SUMMARY"
-          fi
-          if [ -f "$OUT_DIR/viewer.html" ]; then
-            echo "- viewer.html present" >> "$GITHUB_STEP_SUMMARY"
-          fi
-          if [ -f "$OUT_DIR/renders/renders_manifest.json" ]; then
-            echo "- renders_manifest.json present" >> "$GITHUB_STEP_SUMMARY"
-          fi
-          if [ -d "$OUT_DIR/final/gds" ]; then
-            echo "- final/gds present" >> "$GITHUB_STEP_SUMMARY"
-          fi
-          if [ -d "$OUT_DIR/renders" ]; then
-            echo "- renders present" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          if [ -f "$OUT_DIR/metrics.csv" ]; then echo "- metrics.csv present" >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -f "$OUT_DIR/metrics.md" ]; then echo "- metrics.md present" >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -f "$OUT_DIR/metrics_raw.json" ]; then echo "- metrics_raw.json present" >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -f "$OUT_DIR/run_meta.json" ]; then echo "- run_meta.json present" >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -f "$OUT_DIR/viewer.html" ]; then echo "- viewer.html present" >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -f "$OUT_DIR/renders/renders_manifest.json" ]; then echo "- renders_manifest.json present" >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -d "$OUT_DIR/final/gds" ]; then echo "- final/gds present" >> "$GITHUB_STEP_SUMMARY"; fi
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
           echo "### Artifact" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- run-${{ matrix.variant }}-${{ matrix.clock_ns }}" >> "$GITHUB_STEP_SUMMARY"
-          if [ -f "$OUT_DIR/viewer.html" ]; then
-            echo "- layout viewer: viewer.html included in artifact" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          echo "- raw GDS copied into artifact when present" >> "$GITHUB_STEP_SUMMARY"
+          echo "- KLayout PNG rendering is optional and will be skipped cleanly when klayout is unavailable" >> "$GITHUB_STEP_SUMMARY"
 
   compare-runs:
     name: compare-runs
     needs: run-flow
     if: always()
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -332,13 +317,16 @@ jobs:
         run: |
           find _collected -maxdepth 8 -type f | sort | sed -n '1,300p'
 
-      - name: Build comparison summary
+      - name: Build comparison summary + best bundle + Pages site
         run: |
           python tools/scripts/compare_runs.py \
             --artifacts-root _collected \
             --summary-md _compare_summary.md \
             --summary-csv _compare_summary.csv \
-            --best-json _best_run.json
+            --best-json _best_run.json \
+            --best-bundle-dir _best_layout_bundle \
+            --site-dir _site \
+            --viewer-url-format "${VIEWER_URL_FORMAT}"
 
       - name: Upload comparison artifact
         uses: actions/upload-artifact@v4
@@ -348,6 +336,18 @@ jobs:
             _compare_summary.md
             _compare_summary.csv
             _best_run.json
+            _site/viewer_links_rel.json
+
+      - name: Upload best-layout bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: best-layout-bundle
+          path: _best_layout_bundle/
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
 
       - name: Workflow Summary
         shell: bash
@@ -359,3 +359,63 @@ jobs:
           else
             echo "- No comparison summary produced." >> "$GITHUB_STEP_SUMMARY"
           fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Published artifacts:" >> "$GITHUB_STEP_SUMMARY"
+          echo "- compare-summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "- best-layout-bundle" >> "$GITHUB_STEP_SUMMARY"
+          echo "- github-pages artifact prepared" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-viewer-pages:
+    name: deploy-viewer-pages
+    needs: compare-runs
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download compare-summary metadata
+        uses: actions/download-artifact@v4
+        with:
+          name: compare-summary
+          path: _deploy_meta
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Publish viewer links into summary
+        shell: bash
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          echo "# Published layout site" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Pages home: ${PAGE_URL}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          import os
+          from pathlib import Path
+
+          page_url = os.environ["PAGE_URL"].rstrip("/")
+          links_path = Path("_deploy_meta/viewer_links_rel.json")
+          print("## Per-run published links")
+          print("")
+          if not links_path.exists():
+              print("- No viewer_links_rel.json found.")
+              raise SystemExit(0)
+
+          links = json.loads(links_path.read_text(encoding="utf-8"))
+          print("| Best | Variant | Clock (ns) | Status | Run page | Raw GDS |")
+          print("|---|---|---:|---|---|---|")
+          for item in links:
+              best = "★" if item.get("is_best") else ""
+              run_page = f"{page_url}/{item['viewer_rel'].lstrip('/')}"
+              gds_page = f"{page_url}/{item['gds_rel'].lstrip('/')}"
+              print(f"| {best} | {item.get('variant','')} | {item.get('clock_ns','')} | {item.get('status','')} | {run_page} | {gds_page} |")
+          PY
