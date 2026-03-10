@@ -5,7 +5,11 @@ import argparse
 import csv
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
+
+
+PASS_STATUSES = {"PASS"}
+FLOW_FAIL_STATUSES = {"FLOW_FAIL", "INCOMPLETE"}
 
 
 def to_float(v: Any) -> Optional[float]:
@@ -15,6 +19,10 @@ def to_float(v: Any) -> Optional[float]:
         return float(v)
     except Exception:
         return None
+
+
+def fmt(v: float) -> str:
+    return str(int(v)) if float(v).is_integer() else str(round(v, 6))
 
 
 def read_csv_row(path: Path) -> Optional[Dict[str, str]]:
@@ -27,7 +35,7 @@ def read_csv_row(path: Path) -> Optional[Dict[str, str]]:
 
 def classify_status(row: Dict[str, str]) -> str:
     raw_status = str(row.get("status", "")).strip().upper()
-    if raw_status in {"FLOW_FAIL", "INCOMPLETE"}:
+    if raw_status in FLOW_FAIL_STATUSES:
         return "FLOW_FAIL"
 
     swns = to_float(row.get("setup_wns_ns"))
@@ -50,19 +58,15 @@ def classify_status(row: Dict[str, str]) -> str:
 
 def collect_rows(artifacts_root: Path) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
-    seen: Set[Path] = set()
-
+    seen: Set[Tuple[float, str]] = set()
     patterns = [
-        "**/ci_out/*/clk_*ns_*/metrics.csv",
-        "**/*/clk_*ns_*/metrics.csv",
+        "**/clk_*ns_attempt_*/metrics.csv",
+        "**/ci_out/*/clk_*ns_attempt_*/metrics.csv",
+        "**/*/clk_*ns_attempt_*/metrics.csv",
     ]
 
     for pattern in patterns:
         for csv_path in sorted(artifacts_root.glob(pattern)):
-            if csv_path in seen:
-                continue
-            seen.add(csv_path)
-
             row = read_csv_row(csv_path)
             if not row:
                 continue
@@ -70,6 +74,11 @@ def collect_rows(artifacts_root: Path) -> List[Dict[str, Any]]:
             clock_ns = to_float(row.get("clock_ns"))
             if clock_ns is None:
                 continue
+
+            key = (round(clock_ns, 6), str(csv_path))
+            if key in seen:
+                continue
+            seen.add(key)
 
             rows.append(
                 {
@@ -84,42 +93,37 @@ def collect_rows(artifacts_root: Path) -> List[Dict[str, Any]]:
 
 
 def unique_sorted_desc(values: List[float]) -> List[float]:
-    return sorted(set(round(v, 6) for v in values), reverse=True)
+    return sorted({round(v, 6) for v in values}, reverse=True)
 
 
 def unique_sorted_asc(values: List[float]) -> List[float]:
-    return sorted(set(round(v, 6) for v in values))
+    return sorted({round(v, 6) for v in values})
 
 
-def build_between(
-    lower_fail: float,
-    upper_pass: float,
-    step_ns: float,
-    *,
-    existing: Set[float],
-    min_clock_ns: float,
-    batch_size: int,
-) -> List[float]:
+def write_output(matrix: List[float], reason: str, github_output: Optional[Path]) -> None:
+    matrix_json = json.dumps(matrix)
+    print(matrix_json)
+    print(reason)
+    if github_output is not None:
+        with github_output.open("a", encoding="utf-8") as f:
+            print(f"matrix_json={matrix_json}", file=f)
+            print(f"reason={reason}", file=f)
+
+
+def build_between(lower_fail: float, upper_pass: float, step_ns: float, existing: Set[float], batch_size: int) -> List[float]:
     candidates: List[float] = []
     current = upper_pass - step_ns
     while current > lower_fail and len(candidates) < batch_size:
         c = round(current, 6)
-        if c >= min_clock_ns and c not in existing:
+        if c not in existing:
             candidates.append(c)
         current -= step_ns
     return unique_sorted_desc(candidates)
 
 
-def build_extend_downward(
-    anchor_clock: float,
-    step_ns: float,
-    *,
-    existing: Set[float],
-    min_clock_ns: float,
-    batch_size: int,
-) -> List[float]:
+def extend_downward(lowest_pass: float, step_ns: float, min_clock_ns: float, existing: Set[float], batch_size: int) -> List[float]:
     candidates: List[float] = []
-    current = anchor_clock - step_ns
+    current = lowest_pass - step_ns
     while current >= min_clock_ns and len(candidates) < batch_size:
         c = round(current, 6)
         if c not in existing:
@@ -128,16 +132,9 @@ def build_extend_downward(
     return unique_sorted_desc(candidates)
 
 
-def build_extend_upward(
-    anchor_clock: float,
-    step_ns: float,
-    *,
-    existing: Set[float],
-    max_clock_ns: float,
-    batch_size: int,
-) -> List[float]:
+def extend_upward(highest_tested: float, step_ns: float, max_clock_ns: float, existing: Set[float], batch_size: int) -> List[float]:
     candidates: List[float] = []
-    current = anchor_clock + step_ns
+    current = highest_tested + step_ns
     while current <= max_clock_ns and len(candidates) < batch_size:
         c = round(current, 6)
         if c not in existing:
@@ -146,19 +143,29 @@ def build_extend_upward(
     return unique_sorted_asc(candidates)
 
 
-def write_output(matrix: List[float], github_output: Optional[Path], reason: str) -> None:
-    payload = [int(v) if float(v).is_integer() else round(v, 6) for v in matrix]
-    matrix_json = json.dumps(payload)
-    print(matrix_json)
-    print(f"reason={reason}")
-    if github_output is not None:
-        with github_output.open("a", encoding="utf-8") as f:
-            print(f"matrix_json={matrix_json}", file=f)
-            print(f"reason={reason}", file=f)
+def analyze(rows: List[Dict[str, Any]]) -> Tuple[List[float], List[float], Optional[float], Optional[float]]:
+    existing = sorted({row["clock_ns"] for row in rows})
+    passes = sorted(row["clock_ns"] for row in rows if row["status"] in PASS_STATUSES)
+    non_flow = sorted(row["clock_ns"] for row in rows if row["status"] != "FLOW_FAIL")
+
+    lowest_pass = min(passes) if passes else None
+    highest_fail_below_pass = None
+    if lowest_pass is not None:
+        fails_below = [
+            row["clock_ns"]
+            for row in rows
+            if row["status"] != "PASS"
+            and row["status"] != "FLOW_FAIL"
+            and row["clock_ns"] < lowest_pass
+        ]
+        if fails_below:
+            highest_fail_below_pass = max(fails_below)
+
+    return existing, non_flow, lowest_pass, highest_fail_below_pass
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Select the next clock matrix for staged refinement.")
+    ap = argparse.ArgumentParser(description="Select next clock matrix for refine or extension stages")
     ap.add_argument("--artifacts-root", type=Path, required=True)
     ap.add_argument("--mode", choices=["extend", "refine"], required=True)
     ap.add_argument("--step-ns", type=float, required=True)
@@ -169,91 +176,57 @@ def main() -> None:
     ap.add_argument("--github-output", type=Path, default=None)
     args = ap.parse_args()
 
-    if args.step_ns <= 0:
-        raise SystemExit("--step-ns must be > 0")
-    if args.batch_size <= 0:
-        raise SystemExit("--batch-size must be > 0")
-
     rows = collect_rows(args.artifacts_root)
     if not rows:
-        write_output([], args.github_output, "No metrics.csv files were found in downloaded artifacts.")
+        write_output([], "No metrics artifacts found yet.", args.github_output)
         return
 
-    non_flow_results = [row for row in rows if row["status"] != "FLOW_FAIL"]
-    if not non_flow_results:
-        write_output([], args.github_output, "All discovered runs are FLOW_FAIL, so refinement stops.")
+    existing, non_flow, lowest_pass, highest_fail_below_pass = analyze(rows)
+    existing_set = {round(v, 6) for v in existing}
+
+    if not non_flow:
+        write_output([], "All observed results are FLOW_FAIL, so refinement stops instead of expanding upward.", args.github_output)
         return
 
-    existing = {row["clock_ns"] for row in rows}
-    passes = sorted(row["clock_ns"] for row in non_flow_results if row["status"] == "PASS")
+    if args.mode == "extend":
+        if lowest_pass is not None and highest_fail_below_pass is not None:
+            interval = lowest_pass - highest_fail_below_pass
+            if interval <= args.tolerance_ns:
+                write_output([], f"Existing pass/fail bracket [{fmt(highest_fail_below_pass)}, {fmt(lowest_pass)}] is already within tolerance.", args.github_output)
+                return
 
-    if not passes:
-        highest_tested = max(row["clock_ns"] for row in non_flow_results)
-        if args.mode == "refine":
-            write_output([], args.github_output, "No PASS result exists yet, so a finer refine stage is not started.")
+            matrix = build_between(highest_fail_below_pass, lowest_pass, args.step_ns, existing_set, args.batch_size)
+            write_output(matrix, f"Same-step extension/refinement at {fmt(args.step_ns)} ns inside existing bracket [{fmt(highest_fail_below_pass)}, {fmt(lowest_pass)}].", args.github_output)
             return
+
+        if lowest_pass is not None:
+            matrix = extend_downward(lowest_pass, args.step_ns, args.min_clock_ns, existing_set, args.batch_size)
+            write_output(matrix, f"All usable points still pass down to {fmt(lowest_pass)} ns, so extend downward at the same {fmt(args.step_ns)} ns step.", args.github_output)
+            return
+
+        highest_tested = max(non_flow)
         if highest_tested >= args.max_clock_ns:
-            write_output([], args.github_output, "No PASS result exists and the upward clock cap is already reached.")
+            write_output([], f"No passing point found and the highest tested usable point {fmt(highest_tested)} ns already reached the variant cap {fmt(args.max_clock_ns)} ns.", args.github_output)
             return
-        matrix = build_extend_upward(
-            highest_tested,
-            args.step_ns,
-            existing=existing,
-            max_clock_ns=args.max_clock_ns,
-            batch_size=args.batch_size,
-        )
-        write_output(matrix, args.github_output, "No PASS result exists yet, so the same step is extended upward.")
+
+        matrix = extend_upward(highest_tested, args.step_ns, args.max_clock_ns, existing_set, args.batch_size)
+        write_output(matrix, f"No passing point found yet, so extend upward at the same {fmt(args.step_ns)} ns step from {fmt(highest_tested)} ns toward the cap.", args.github_output)
         return
 
-    lowest_pass = min(passes)
-    fails_below = sorted(
-        row["clock_ns"] for row in non_flow_results if row["status"] != "PASS" and row["clock_ns"] < lowest_pass
-    )
-    highest_fail_below_pass = max(fails_below) if fails_below else None
-
-    if args.mode == "refine":
-        if highest_fail_below_pass is None:
-            write_output([], args.github_output, "A pass/fail bracket does not exist yet, so finer refinement is deferred.")
-            return
-        interval = lowest_pass - highest_fail_below_pass
-        if interval <= args.tolerance_ns:
-            write_output([], args.github_output, "The pass/fail bracket is already within tolerance, so refinement stops.")
-            return
-        matrix = build_between(
-            highest_fail_below_pass,
-            lowest_pass,
-            args.step_ns,
-            existing=existing,
-            min_clock_ns=args.min_clock_ns,
-            batch_size=args.batch_size,
-        )
-        write_output(matrix, args.github_output, "A pass/fail bracket exists, so a finer stage is inserted between them.")
+    if lowest_pass is None or highest_fail_below_pass is None:
+        if lowest_pass is not None:
+            write_output([], f"Refine stage at {fmt(args.step_ns)} ns is skipped because there is no fail below the current lowest pass {fmt(lowest_pass)} ns yet.", args.github_output)
+        else:
+            write_output([], f"Refine stage at {fmt(args.step_ns)} ns is skipped because no passing point exists yet.", args.github_output)
         return
 
-    if highest_fail_below_pass is not None:
-        matrix = build_between(
-            highest_fail_below_pass,
-            lowest_pass,
-            args.step_ns,
-            existing=existing,
-            min_clock_ns=args.min_clock_ns,
-            batch_size=args.batch_size,
-        )
-        write_output(matrix, args.github_output, "A pass/fail bracket exists, so the same step continues filling that bracket.")
+    interval = lowest_pass - highest_fail_below_pass
+    if interval <= args.tolerance_ns:
+        write_output([], f"Existing pass/fail bracket [{fmt(highest_fail_below_pass)}, {fmt(lowest_pass)}] is already within tolerance.", args.github_output)
         return
 
-    matrix = build_extend_downward(
-        lowest_pass,
-        args.step_ns,
-        existing=existing,
-        min_clock_ns=args.min_clock_ns,
-        batch_size=args.batch_size,
-    )
-    if matrix:
-        write_output(matrix, args.github_output, "All usable results still pass, so the same step is extended downward first.")
-        return
-
-    write_output([], args.github_output, "All usable results pass, but the minimum clock floor has already been reached.")
+    matrix = build_between(highest_fail_below_pass, lowest_pass, args.step_ns, existing_set, args.batch_size)
+    write_output(matrix, f"Refining inside bracket [{fmt(highest_fail_below_pass)}, {fmt(lowest_pass)}] with {fmt(args.step_ns)} ns step.", args.github_output)
 
 
 if __name__ == "__main__":

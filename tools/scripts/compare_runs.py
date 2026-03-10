@@ -212,12 +212,12 @@ def build_theme_script(button_id: str, panel_id: str, storage_key: str) -> str:
     panel.style.width = panelWidth + "px";
     panel.style.maxWidth = panelWidth + "px";
 
-    const panelHeight = panel.offsetHeight || 0;
+    const panelHeight = panel.offsetHeight || 320;
     let left = rect.right - panelWidth;
     left = Math.max(margin, Math.min(left, viewportWidth - panelWidth - margin));
 
     let top = rect.bottom + 12;
-    if (panelHeight > 0 && top + panelHeight > viewportHeight - margin) {{
+    if (top + panelHeight > viewportHeight - margin) {{
       top = Math.max(margin, rect.top - panelHeight - 12);
     }}
 
@@ -227,12 +227,14 @@ def build_theme_script(button_id: str, panel_id: str, storage_key: str) -> str:
 
   function openPanel() {{
     panel.hidden = false;
+    panel.classList.add("open");
     button.setAttribute("aria-expanded", "true");
-    window.requestAnimationFrame(positionPanel);
+    positionPanel();
   }}
 
   function closePanel() {{
     panel.hidden = true;
+    panel.classList.remove("open");
     button.setAttribute("aria-expanded", "false");
   }}
 
@@ -263,8 +265,13 @@ def build_theme_script(button_id: str, panel_id: str, storage_key: str) -> str:
     }}
   }});
 
-  window.addEventListener("resize", positionPanel);
-  window.addEventListener("scroll", positionPanel, true);
+  window.addEventListener("resize", function () {{
+    if (!panel.hidden) positionPanel();
+  }});
+
+  window.addEventListener("scroll", function () {{
+    if (!panel.hidden) positionPanel();
+  }}, true);
 
   presetTheme.addEventListener("change", () => {{
     const preset = presets[presetTheme.value];
@@ -521,16 +528,16 @@ def write_summary_md(path: Path, rows: List[Dict[str, str]]) -> None:
     lines.append("")
 
     if rows:
-        best = sorted(rows, key=best_sort_key)[0]
-        lines.append("### Chosen best run")
-        lines.append("")
-        lines.append(f"- Variant: `{md_escape(best.get('_variant'))}`")
-        lines.append(f"- Run: `{md_escape(best.get('_run_dir'))}`")
-        lines.append(f"- Status: `{md_escape(best.get('status'))}`")
-        lines.append("")
+      best = sorted(rows, key=best_sort_key)[0]
+      lines.append("### Chosen best run")
+      lines.append("")
+      lines.append(f"- Variant: `{md_escape(best.get('_variant'))}`")
+      lines.append(f"- Run: `{md_escape(best.get('_run_dir'))}`")
+      lines.append(f"- Status: `{md_escape(best.get('status'))}`")
+      lines.append("")
     else:
-        lines.append("No runs collected.")
-        lines.append("")
+      lines.append("No runs collected.")
+      lines.append("")
 
     lines.append("## All runs")
     lines.append("")
@@ -936,8 +943,6 @@ tr:hover td{background:rgba(255,255,255,0.06)}
     align-self:flex-end;
   }
   .theme-widget{
-    left:12px;
-    right:auto;
     width:min(320px, calc(100vw - 24px));
   }
 }
@@ -1105,9 +1110,9 @@ tr:hover td{background:rgba(255,255,255,0.06)}
         row_class = "selected-row" if idx == 0 else ""
 
         rows_html.append(
-            "<tr class=\"%s\">"
+            "<tr class=\\"%s\\">"
             "<td>%s</td>"
-            "<td><a href=\"%s\"><strong>%s / %s</strong></a><div class=\"muted small mono\">%s</div></td>"
+            "<td><a href=\\"%s\\"><strong>%s / %s</strong></a><div class=\\"muted small mono\\">%s</div></td>"
             "<td>%s</td>"
             "<td>%s</td>"
             "<td>%s</td>"
