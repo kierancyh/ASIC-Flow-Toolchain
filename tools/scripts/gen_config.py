@@ -1,47 +1,55 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
 import argparse
 import glob
 import json
 import os
+from pathlib import Path
+from typing import Any, Dict, List
+
 import yaml
 
 
-def load_yaml(path: str):
-    with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+ROOT = Path(__file__).resolve().parents[2]
 
 
-def normpath(p: str) -> str:
-    return p.replace("\\", "/")
+def load_yaml(path: Path) -> Dict[str, Any]:
+    with path.open("r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
 
 
-def resolve_path(variant_path: str, p: str) -> str:
-    if not p:
-        return p
-    p = normpath(p)
-
-    if p.startswith("/") or (len(p) > 2 and p[1] == ":" and p[2] in ("/", "\\")):
-        return p
-
-    if p.startswith(("designs/", ".github/", "tools/", "docs/")):
-        return p
-
-    return normpath(os.path.normpath(os.path.join(variant_path, p)))
+def normpath(value: str) -> str:
+    return value.replace("\\", "/")
 
 
-def map_safe_variant_to_path(safe: str) -> str:
-    manifest = load_yaml("manifest.yaml")
-    for exp in manifest.get("experiments", []):
-        vp = exp.get("variant")
-        if vp and vp.replace("/", "_") == safe:
-            return vp
-    raise SystemExit(f"Cannot map variant '{safe}' back to a designs/<x> path.")
+def resolve_path(variant_path: Path, value: str) -> str:
+    if not value:
+        return value
+
+    value = normpath(value)
+    if value.startswith("/") or (len(value) > 2 and value[1] == ":" and value[2] in ("/", "\\")):
+        return value
+    if value.startswith(("designs/", ".github/", "tools/", "docs/")):
+        return value
+    return normpath(os.path.normpath(str(variant_path / value)))
 
 
-def as_bool(value, default: bool) -> bool:
+def map_safe_variant_to_path(safe_variant: str) -> Path:
+    manifest = load_yaml(ROOT / "manifest.yaml")
+    for exp in manifest.get("experiments", []) or []:
+        variant = str(exp.get("variant", "")).strip()
+        if variant and variant.replace("/", "_") == safe_variant:
+            return ROOT / variant
+    raise SystemExit(f"Cannot map variant '{safe_variant}' back to a designs/ path.")
+
+
+def as_bool(value: Any, default: bool) -> bool:
     if value is None:
         return default
     if isinstance(value, bool):
         return value
+
     s = str(value).strip().lower()
     if s in {"1", "true", "yes", "on"}:
         return True
@@ -50,72 +58,90 @@ def as_bool(value, default: bool) -> bool:
     return default
 
 
-def main():
+def resolve_variant_path(variant_arg: str) -> Path:
+    candidate = Path(variant_arg)
+    if candidate.is_dir() and (candidate / "variant.yaml").exists():
+        return candidate.resolve()
+    return map_safe_variant_to_path(variant_arg).resolve()
+
+
+def resolve_sources(variant_path: Path, source_patterns: List[str]) -> List[str]:
+    sources: List[str] = []
+    for pattern in source_patterns:
+        sources.extend(glob.glob(str(variant_path / pattern), recursive=True))
+    sources = sorted(set(normpath(path) for path in sources))
+    if not sources:
+        raise SystemExit("No Verilog sources found. Check variant.yaml 'sources' globs.")
+    return sources
+
+
+def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--variant", required=True)
     ap.add_argument("--clock_ns", required=True)
     ap.add_argument("--pdk-root", required=True)
     ap.add_argument("--out", default="config.json")
-
     ap.add_argument("--synth-strategy", default="")
     ap.add_argument("--run-antenna-repair", default="")
     ap.add_argument("--run-heuristic-diode-insertion", default="")
     ap.add_argument("--run-post-grt-design-repair", default="")
     ap.add_argument("--run-post-grt-resizer-timing", default="")
-
     args = ap.parse_args()
 
-    if os.path.isdir(args.variant) and os.path.exists(os.path.join(args.variant, "variant.yaml")):
-        variant_path = args.variant
-    else:
-        variant_path = map_safe_variant_to_path(args.variant)
+    variant_path = resolve_variant_path(args.variant)
+    variant_cfg = load_yaml(variant_path / "variant.yaml")
 
-    vcfg = load_yaml(os.path.join(variant_path, "variant.yaml"))
+    top_module = variant_cfg["top_module"]
+    clock_cfg = variant_cfg.get("clock", {}) or {}
+    clock_port = clock_cfg.get("port", "clk")
+    clock_ns = float(args.clock_ns)
 
-    top = vcfg["top_module"]
-    clk_port = (vcfg.get("clock") or {}).get("port", "clk")
-    clk_ns = float(args.clock_ns)
+    sources = resolve_sources(variant_path, list(variant_cfg.get("sources", []) or []))
 
-    sources = []
-    for pat in vcfg.get("sources", []):
-        sources += glob.glob(os.path.join(variant_path, pat), recursive=True)
-    sources = sorted(set(normpath(s) for s in sources))
-    if not sources:
-        raise SystemExit("No Verilog sources found. Check variant.yaml 'sources' globs.")
+    ll_policy = variant_cfg.get("ll_policy", {}) or {}
+    shared = variant_cfg.get("shared", {}) or {}
+    fp = variant_cfg.get("fp", {}) or {}
 
-    llp = vcfg.get("ll_policy", {}) or {}
-    shared = vcfg.get("shared", {}) or {}
-
-    pnr_sdc = llp.get("sdc") or shared.get("pnr_sdc") or "designs/_shared/ll_policy/constraints.sdc"
+    pnr_sdc = ll_policy.get("sdc") or shared.get("pnr_sdc") or "designs/_shared/ll_policy/constraints.sdc"
     signoff_sdc = shared.get("signoff_sdc") or pnr_sdc
 
-    pnr_sdc = resolve_path(variant_path, pnr_sdc)
-    signoff_sdc = resolve_path(variant_path, signoff_sdc)
+    pnr_sdc = resolve_path(variant_path, str(pnr_sdc))
+    signoff_sdc = resolve_path(variant_path, str(signoff_sdc))
 
-    fp = vcfg.get("fp", {}) or {}
     core_util = fp.get("core_util", 10)
 
-    synth_strategy = args.synth_strategy or llp.get("synth_strategy", "AREA 3")
-    run_heuristic_diode_insertion = as_bool(args.run_heuristic_diode_insertion, as_bool(llp.get("run_heuristic_diode_insertion"), True))
-    run_antenna_repair = as_bool(args.run_antenna_repair, as_bool(llp.get("run_antenna_repair"), True))
-    run_post_grt_design_repair = as_bool(args.run_post_grt_design_repair, as_bool(llp.get("run_post_grt_design_repair"), True))
-    run_post_grt_resizer_timing = as_bool(args.run_post_grt_resizer_timing, as_bool(llp.get("run_post_grt_resizer_timing"), False))
+    explicit_synth = str(args.synth_strategy or "").strip()
+    variant_synth = str(ll_policy.get("synth_strategy") or "").strip()
+    synth_strategy = explicit_synth or variant_synth
 
-    cfg = {
-        "DESIGN_NAME": top,
+    run_heuristic_diode_insertion = as_bool(
+        args.run_heuristic_diode_insertion,
+        as_bool(ll_policy.get("run_heuristic_diode_insertion"), True),
+    )
+    run_antenna_repair = as_bool(
+        args.run_antenna_repair,
+        as_bool(ll_policy.get("run_antenna_repair"), True),
+    )
+    run_post_grt_design_repair = as_bool(
+        args.run_post_grt_design_repair,
+        as_bool(ll_policy.get("run_post_grt_design_repair"), True),
+    )
+    run_post_grt_resizer_timing = as_bool(
+        args.run_post_grt_resizer_timing,
+        as_bool(ll_policy.get("run_post_grt_resizer_timing"), False),
+    )
+
+    cfg: Dict[str, Any] = {
+        "DESIGN_NAME": top_module,
         "VERILOG_FILES": sources,
-        "CLOCK_PORT": clk_port,
-        "CLOCK_PERIOD": clk_ns,
+        "CLOCK_PORT": clock_port,
+        "CLOCK_PERIOD": clock_ns,
         "FP_CORE_UTIL": core_util,
-
-        "SYNTH_STRATEGY": synth_strategy,
         "SYNTH_ABC_DFF": False,
-
         "RUN_ANTENNA_REPAIR": run_antenna_repair,
         "RUN_HEURISTIC_DIODE_INSERTION": run_heuristic_diode_insertion,
         "RUN_POST_GRT_DESIGN_REPAIR": run_post_grt_design_repair,
         "RUN_POST_GRT_RESIZER_TIMING": run_post_grt_resizer_timing,
-
         "PNR_SDC_FILE": pnr_sdc,
         "SIGNOFF_SDC_FILE": signoff_sdc,
         "RUN_LINTER": False,
@@ -124,12 +150,17 @@ def main():
         "QUIT_ON_VERILATOR_ERRORS": False,
     }
 
-    with open(args.out, "w", encoding="utf-8") as f:
+    if synth_strategy:
+        cfg["SYNTH_STRATEGY"] = synth_strategy
+
+    out_path = Path(args.out)
+    with out_path.open("w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
 
+    synth_label = synth_strategy if synth_strategy else "OpenLane default (not overridden)"
     print(
-        f"Wrote {args.out} for {variant_path} @ {clk_ns}ns "
-        f"(top={top}, clk={clk_port}, synth={synth_strategy}, "
+        f"Wrote {out_path} for {variant_path} @ {clock_ns}ns "
+        f"(top={top_module}, clk={clock_port}, synth={synth_label}, "
         f"antenna_repair={run_antenna_repair}, diode_insertion={run_heuristic_diode_insertion}, "
         f"post_grt_repair={run_post_grt_design_repair}, post_grt_resizer_timing={run_post_grt_resizer_timing})"
     )

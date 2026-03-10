@@ -32,9 +32,9 @@ on:
         default: "1"
         type: string
       synth_strategy:
-        description: "OpenLane synthesis strategy"
+        description: "Optional synthesis strategy override (leave blank to use variant/OpenLane defaults)"
         required: false
-        default: "AREA 3"
+        default: ""
         type: string
       run_antenna_repair:
         description: "OpenLane RUN_ANTENNA_REPAIR"
@@ -111,6 +111,7 @@ jobs:
       summary_heuristic_diode_insertion: ${{ steps.summary_knobs.outputs.heuristic_diode_insertion }}
       summary_post_grt_design_repair: ${{ steps.summary_knobs.outputs.post_grt_design_repair }}
       summary_post_grt_resizer_timing: ${{ steps.summary_knobs.outputs.post_grt_resizer_timing }}
+      summary_synth_strategy: ${{ steps.summary_synth.outputs.summary_synth_strategy }}
 
     steps:
       - uses: actions/checkout@v4
@@ -185,6 +186,52 @@ jobs:
         run: |
           START_CLOCK_NS="$(python tools/scripts/read_start_clock.py --variant "${RESOLVED_VARIANT}")"
           echo "start_clock_ns=${START_CLOCK_NS}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve synthesis strategy label
+        id: summary_synth
+        env:
+          RESOLVED_VARIANT: ${{ steps.resolve.outputs.resolved_variant }}
+          INPUT_SYNTH_STRATEGY: ${{ github.event.inputs.synth_strategy }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import yaml
+
+          root = Path('.')
+          resolved_variant = os.environ.get('RESOLVED_VARIANT', '').strip()
+          input_synth = os.environ.get('INPUT_SYNTH_STRATEGY', '').strip()
+
+          manifest = yaml.safe_load((root / 'manifest.yaml').read_text(encoding='utf-8')) or {}
+          variant_path = None
+          candidate = root / resolved_variant
+          if candidate.is_dir() and (candidate / 'variant.yaml').exists():
+              variant_path = candidate
+          else:
+              for exp in manifest.get('experiments', []) or []:
+                  variant = str(exp.get('variant', '')).strip()
+                  safe = variant.replace('/', '_')
+                  if resolved_variant in (variant, safe):
+                      path = root / variant
+                      if path.is_dir() and (path / 'variant.yaml').exists():
+                          variant_path = path
+                          break
+
+          variant_override = ''
+          if variant_path is not None:
+              cfg = yaml.safe_load((variant_path / 'variant.yaml').read_text(encoding='utf-8')) or {}
+              variant_override = str(((cfg.get('ll_policy') or {}).get('synth_strategy') or '')).strip()
+
+          if input_synth:
+              label = f'{input_synth} (workflow override)'
+          elif variant_override:
+              label = f'{variant_override} (variant.yaml ll_policy.synth_strategy)'
+          else:
+              label = 'Default (not overridden)'
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
+              print(f'summary_synth_strategy={label}', file=f)
+          PY
 
       - name: Resolve sweep parameters
         id: sweep
@@ -277,7 +324,7 @@ jobs:
             echo "- Initial Coarse Sweep: \`${{ steps.coarse.outputs.coarse_matrix_json }}\`"
             echo "- Tolerance: \`${{ steps.sweep.outputs.tolerance_ns }} ns\`"
             echo "- Minimum Clock Floor: \`${{ steps.sweep.outputs.min_clock_ns }} ns\`"
-            echo "- Synthesis strategy: \`LibreLane Default\`"
+            echo "- Synthesis strategy: \`${{ steps.summary_synth.outputs.summary_synth_strategy }}\`"
             echo "- Antenna repair: \`${{ steps.summary_knobs.outputs.antenna_repair }}\`"
             echo "- Heuristic diode insertion: \`${{ steps.summary_knobs.outputs.heuristic_diode_insertion }}\`"
             echo "- Post-GRT design repair: \`${{ steps.summary_knobs.outputs.post_grt_design_repair }}\`"
@@ -352,7 +399,7 @@ jobs:
             --initial-step-ns "1" \
             --tolerance-ns "0.000001" \
             --max-iters "1" \
-            --synth-strategy "${SYNTH_STRATEGY:-AREA 3}" \
+            --synth-strategy "${SYNTH_STRATEGY}" \
             --run-antenna-repair "${RUN_ANTENNA_REPAIR:-true}" \
             --run-heuristic-diode-insertion "${RUN_HEURISTIC_DIODE_INSERTION:-true}" \
             --run-post-grt-design-repair "${RUN_POST_GRT_DESIGN_REPAIR:-true}" \
@@ -444,7 +491,7 @@ jobs:
             --github-output "$GITHUB_OUTPUT"
 
   refine-sweep-1:
-    name:  Refine Sweep 1 (${{ matrix.clock_ns }} ns)
+    name: Refine Sweep 1 (${{ matrix.clock_ns }} ns)
     needs:
       - plan
       - select-refine-1
@@ -513,7 +560,7 @@ jobs:
             --initial-step-ns "1" \
             --tolerance-ns "0.000001" \
             --max-iters "1" \
-            --synth-strategy "${SYNTH_STRATEGY:-AREA 3}" \
+            --synth-strategy "${SYNTH_STRATEGY}" \
             --run-antenna-repair "${RUN_ANTENNA_REPAIR:-true}" \
             --run-heuristic-diode-insertion "${RUN_HEURISTIC_DIODE_INSERTION:-true}" \
             --run-post-grt-design-repair "${RUN_POST_GRT_DESIGN_REPAIR:-true}" \
@@ -675,7 +722,7 @@ jobs:
             --initial-step-ns "1" \
             --tolerance-ns "0.000001" \
             --max-iters "1" \
-            --synth-strategy "${SYNTH_STRATEGY:-AREA 3}" \
+            --synth-strategy "${SYNTH_STRATEGY}" \
             --run-antenna-repair "${RUN_ANTENNA_REPAIR:-true}" \
             --run-heuristic-diode-insertion "${RUN_HEURISTIC_DIODE_INSERTION:-true}" \
             --run-post-grt-design-repair "${RUN_POST_GRT_DESIGN_REPAIR:-true}" \
@@ -820,7 +867,7 @@ jobs:
           include-hidden-files: true
 
   deploy-run-explorer:
-    name: Run Explorer
+    name: Deploy Run Explorer
     needs: compare-runs
     if: ${{ needs.compare-runs.result == 'success' }}
     runs-on: ubuntu-latest

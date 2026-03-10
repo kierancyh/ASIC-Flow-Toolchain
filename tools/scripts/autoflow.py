@@ -192,6 +192,7 @@ def write_run_meta(attempt_dir: Path, *, variant: str, clock_ns: float) -> None:
         "variant": variant,
         "clock_ns_requested": clock_ns,
         "github_run_id": os.environ.get("GITHUB_RUN_ID", ""),
+        "synth_strategy_override": args.synth_strategy or "",
         "artifact_name": f"autoflow-{variant}",
     }
     (attempt_dir / "run_meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
@@ -404,7 +405,7 @@ def main() -> None:
     ap.add_argument("--initial-step-ns", type=float, default=20.0)
     ap.add_argument("--tolerance-ns", type=float, default=1.0)
     ap.add_argument("--max-iters", type=int, default=8)
-    ap.add_argument("--synth-strategy", default="AREA 3")
+    ap.add_argument("--synth-strategy", default="")
     ap.add_argument("--run-antenna-repair", default="true")
     ap.add_argument("--run-heuristic-diode-insertion", default="true")
     ap.add_argument("--run-post-grt-design-repair", default="true")
@@ -430,6 +431,7 @@ def main() -> None:
         "openlane_image": args.openlane_image,
         "pdk_root": args.pdk_root,
         "github_run_id": os.environ.get("GITHUB_RUN_ID", ""),
+        "synth_strategy_override": args.synth_strategy or "",
     }
     (out_root / "_autoflow_session.json").write_text(json.dumps(session_meta, indent=2), encoding="utf-8")
 
