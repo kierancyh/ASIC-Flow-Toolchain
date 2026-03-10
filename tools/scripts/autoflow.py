@@ -320,7 +320,7 @@ def write_history_files(out_root: Path, history: List[Dict[str, Any]]) -> None:
     lines = [
         "## Autoflow attempts",
         "",
-        "| Attempt | Clock (ns) | Status | Setup WNS | Setup TNS | DRC | LVS | Antenna | RC | Why |",
+        "| Attempt | Clock (ns) | Status | Setup WNS | Setup TNS | DRC | LVS | Antenna | RC | Remarks |",
         "|---:|---:|---|---:|---:|---:|---:|---:|---:|---|",
     ]
     for row in history:
@@ -436,7 +436,7 @@ def main() -> None:
     summary_path = resolve_summary_path()
     append_summary(summary_path, f"## Autoflow: {safe_variant}")
     append_summary(summary_path, "")
-    append_summary(summary_path, "| Attempt | Clock (ns) | Status | Setup WNS | Setup TNS | DRC | LVS | Antenna | RC | Why |")
+    append_summary(summary_path, "| Attempt | Clock (ns) | Status | Setup WNS | Setup TNS | DRC | LVS | Antenna | RC | Remarks |")
     append_summary(summary_path, "|---:|---:|---|---:|---:|---:|---:|---:|---:|---|")
 
     history: List[Dict[str, Any]] = []

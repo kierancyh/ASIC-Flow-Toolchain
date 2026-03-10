@@ -93,6 +93,7 @@ env:
 
 jobs:
   plan:
+    name: Plan
     runs-on: ubuntu-latest
     outputs:
       resolved_variant: ${{ steps.resolve.outputs.resolved_variant }}
@@ -106,6 +107,10 @@ jobs:
       tolerance_ns: ${{ steps.sweep.outputs.tolerance_ns }}
       openlane_image: ${{ steps.tools.outputs.openlane_image }}
       open_pdks_rev: ${{ steps.tools.outputs.open_pdks_rev }}
+      summary_antenna_repair: ${{ steps.summary_knobs.outputs.antenna_repair }}
+      summary_heuristic_diode_insertion: ${{ steps.summary_knobs.outputs.heuristic_diode_insertion }}
+      summary_post_grt_design_repair: ${{ steps.summary_knobs.outputs.post_grt_design_repair }}
+      summary_post_grt_resizer_timing: ${{ steps.summary_knobs.outputs.post_grt_resizer_timing }}
 
     steps:
       - uses: actions/checkout@v4
@@ -238,17 +243,49 @@ jobs:
           echo "coarse_matrix_json=${COARSE_MATRIX_JSON}" >> "$GITHUB_OUTPUT"
           echo "${COARSE_MATRIX_JSON}"
 
+      - name: Resolve summary knob labels
+        id: summary_knobs
+        env:
+          INPUT_RUN_ANTENNA_REPAIR: ${{ github.event.inputs.run_antenna_repair }}
+          INPUT_RUN_HEURISTIC_DIODE_INSERTION: ${{ github.event.inputs.run_heuristic_diode_insertion }}
+          INPUT_RUN_POST_GRT_DESIGN_REPAIR: ${{ github.event.inputs.run_post_grt_design_repair }}
+          INPUT_RUN_POST_GRT_RESIZER_TIMING: ${{ github.event.inputs.run_post_grt_resizer_timing }}
+        run: |
+          to_label() {
+            case "${1:-}" in
+              true|TRUE|True) echo "enabled" ;;
+              false|FALSE|False) echo "disabled" ;;
+              *) echo "${1:-}" ;;
+            esac
+          }
+
+          {
+            echo "antenna_repair=$(to_label "${INPUT_RUN_ANTENNA_REPAIR:-true}")"
+            echo "heuristic_diode_insertion=$(to_label "${INPUT_RUN_HEURISTIC_DIODE_INSERTION:-true}")"
+            echo "post_grt_design_repair=$(to_label "${INPUT_RUN_POST_GRT_DESIGN_REPAIR:-true}")"
+            echo "post_grt_resizer_timing=$(to_label "${INPUT_RUN_POST_GRT_RESIZER_TIMING:-false}")"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Write plan summary
         run: |
           {
             echo "## Plan"
             echo ""
             echo "- Variant: \`${{ steps.resolve.outputs.resolved_variant }}\`"
-            echo "- Mode: \`auto\`"
-            echo "- Auto start clock: \`${{ steps.start.outputs.start_clock_ns }}\`"
+            echo "- Baseline clock_ns: \`${{ steps.start.outputs.start_clock_ns }}\`"
+            echo "- Coarse step: \`${{ steps.sweep.outputs.coarse_step_ns }} ns\`"
+            echo "- Initial Coarse Sweep: \`${{ steps.coarse.outputs.coarse_matrix_json }}\`"
+            echo "- Tolerance: \`${{ steps.sweep.outputs.tolerance_ns }} ns\`"
+            echo "- Minimum Clock Floor: \`${{ steps.sweep.outputs.min_clock_ns }} ns\`"
+            echo "- Synthesis strategy: \`LibreLane Default\`"
+            echo "- Antenna repair: \`${{ steps.summary_knobs.outputs.antenna_repair }}\`"
+            echo "- Heuristic diode insertion: \`${{ steps.summary_knobs.outputs.heuristic_diode_insertion }}\`"
+            echo "- Post-GRT design repair: \`${{ steps.summary_knobs.outputs.post_grt_design_repair }}\`"
+            echo "- Post-GRT resizer timing: \`${{ steps.summary_knobs.outputs.post_grt_resizer_timing }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
   coarse-sweep:
+    name: Coarse Sweep (${{ matrix.clock_ns }} ns)
     needs: plan
     if: ${{ needs.plan.outputs.coarse_matrix_json != '[]' }}
     runs-on: ubuntu-latest
@@ -407,6 +444,7 @@ jobs:
             --github-output "$GITHUB_OUTPUT"
 
   refine-sweep-1:
+    name:  Refine Sweep 1 (${{ matrix.clock_ns }} ns)
     needs:
       - plan
       - select-refine-1
@@ -568,6 +606,7 @@ jobs:
             --github-output "$GITHUB_OUTPUT"
 
   refine-sweep-2:
+    name: Refine Sweep 2 (${{ matrix.clock_ns }} ns)
     needs:
       - plan
       - select-refine-2
@@ -695,6 +734,7 @@ jobs:
           include-hidden-files: true
 
   compare-runs:
+    name: Compare Runs
     needs:
       - plan
       - coarse-sweep
@@ -780,6 +820,7 @@ jobs:
           include-hidden-files: true
 
   deploy-run-explorer:
+    name: Run Explorer
     needs: compare-runs
     if: ${{ needs.compare-runs.result == 'success' }}
     runs-on: ubuntu-latest

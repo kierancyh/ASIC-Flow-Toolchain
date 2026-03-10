@@ -245,7 +245,6 @@ def write_summary_md(path: Path, rows: List[Dict[str, str]]) -> None:
         lines.append(f"- Variant: `{md_escape(best.get('_variant'))}`")
         lines.append(f"- Run: `{md_escape(best.get('_run_dir'))}`")
         lines.append(f"- Status: `{md_escape(best.get('status'))}`")
-        lines.append(f"- Why selected: {md_escape(best.get('selection_reason'))}")
         lines.append("")
     else:
         lines.append("No runs collected.")
@@ -253,17 +252,17 @@ def write_summary_md(path: Path, rows: List[Dict[str, str]]) -> None:
 
     lines.append("## All runs")
     lines.append("")
-    lines.append("| Variant | Run | Clock (ns) | Setup WNS | Setup TNS | DRC | LVS | Antenna | Status | Why not best / why selected |")
+    lines.append("| Variant | Run | Clock (ns) | Setup WNS | Setup TNS | DRC | LVS | Antenna | Status | Remarks |")
     lines.append("|---|---|---:|---:|---:|---:|---:|---:|---|---|")
 
     for idx, row in enumerate(sorted(rows, key=best_sort_key)):
-        why = row.get("selection_reason", "")
+        remarks = row.get("selection_reason", "")
         if idx == 0:
-            why = f"SELECTED — {why}"
+            remarks = f"SELECTED — {remarks}"
         lines.append(
             f"| {md_escape(row.get('_variant'))} | {md_escape(row.get('_run_dir'))} | {md_escape(row.get('clock_ns'))} | "
             f"{md_escape(row.get('setup_wns_ns'))} | {md_escape(row.get('setup_tns_ns'))} | {md_escape(row.get('drc_errors'))} | "
-            f"{md_escape(row.get('lvs_errors'))} | {md_escape(row.get('antenna_violations'))} | {md_escape(row.get('status'))} | {md_escape(why)} |"
+            f"{md_escape(row.get('lvs_errors'))} | {md_escape(row.get('antenna_violations'))} | {md_escape(row.get('status'))} | {md_escape(remarks)} |"
         )
 
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -341,108 +340,229 @@ def build_site(site_root: Path, rows: List[Dict[str, str]]) -> None:
 
     site_css = """
 :root{
-  --bg:#0b1020;
-  --panel:#131a2e;
-  --panel-2:#18223b;
-  --border:#2a3558;
-  --text:#eaf0ff;
-  --muted:#a9b6d3;
-  --accent:#7aa2ff;
-  --accent-2:#4de2c5;
-  --pass:#1f9d63;
-  --timing:#d29b19;
-  --signoff:#d15b5b;
-  --mixed:#c26ce5;
-  --flow:#6b7280;
-  --shadow:0 18px 45px rgba(0,0,0,.28);
-  --radius:18px;
+  color-scheme: light dark;
+
+  --bg: #f4ecdf;
+  --bg-grad-1: #f8f1e7;
+  --bg-grad-2: #efe4d3;
+  --panel: rgba(255, 250, 243, 0.82);
+  --panel-strong: rgba(255, 248, 238, 0.94);
+  --panel-soft: rgba(255, 255, 255, 0.46);
+  --border: rgba(116, 92, 62, 0.16);
+  --border-strong: rgba(116, 92, 62, 0.22);
+  --text: #2f2418;
+  --muted: #716250;
+  --accent: #8b5e3c;
+  --accent-2: #b6845e;
+  --shadow: 0 18px 45px rgba(110, 84, 53, 0.12);
+
+  --pass-bg: rgba(73, 143, 96, 0.14);
+  --pass-fg: #285a38;
+  --pass-br: rgba(73, 143, 96, 0.28);
+
+  --timing-bg: rgba(190, 143, 45, 0.16);
+  --timing-fg: #7d5b13;
+  --timing-br: rgba(190, 143, 45, 0.28);
+
+  --signoff-bg: rgba(180, 83, 72, 0.14);
+  --signoff-fg: #7b2f28;
+  --signoff-br: rgba(180, 83, 72, 0.26);
+
+  --mixed-bg: rgba(135, 96, 166, 0.14);
+  --mixed-fg: #5b3f77;
+  --mixed-br: rgba(135, 96, 166, 0.24);
+
+  --flow-bg: rgba(120, 115, 108, 0.14);
+  --flow-fg: #504a44;
+  --flow-br: rgba(120, 115, 108, 0.22);
+
+  --tag-bg: rgba(139, 94, 60, 0.10);
+  --tag-fg: #7a5235;
+  --tag-br: rgba(139, 94, 60, 0.18);
+
+  --radius-xl: 28px;
+  --radius-lg: 20px;
+  --radius-md: 14px;
 }
+
+@media (prefers-color-scheme: dark) {
+  :root{
+    --bg: #1b1712;
+    --bg-grad-1: #1e1913;
+    --bg-grad-2: #2a2219;
+    --panel: rgba(44, 35, 26, 0.86);
+    --panel-strong: rgba(50, 40, 30, 0.94);
+    --panel-soft: rgba(255, 255, 255, 0.04);
+    --border: rgba(219, 194, 161, 0.10);
+    --border-strong: rgba(219, 194, 161, 0.18);
+    --text: #f3e7d6;
+    --muted: #c1b09a;
+    --accent: #e1b78a;
+    --accent-2: #d39f68;
+    --shadow: 0 20px 50px rgba(0, 0, 0, 0.34);
+
+    --pass-bg: rgba(84, 160, 109, 0.18);
+    --pass-fg: #bfe8c8;
+    --pass-br: rgba(84, 160, 109, 0.34);
+
+    --timing-bg: rgba(202, 156, 58, 0.18);
+    --timing-fg: #f5d48c;
+    --timing-br: rgba(202, 156, 58, 0.34);
+
+    --signoff-bg: rgba(194, 95, 84, 0.18);
+    --signoff-fg: #ffb9b0;
+    --signoff-br: rgba(194, 95, 84, 0.34);
+
+    --mixed-bg: rgba(153, 113, 187, 0.18);
+    --mixed-fg: #e2c2ff;
+    --mixed-br: rgba(153, 113, 187, 0.32);
+
+    --flow-bg: rgba(131, 126, 120, 0.18);
+    --flow-fg: #d8d1ca;
+    --flow-br: rgba(131, 126, 120, 0.28);
+
+    --tag-bg: rgba(225, 183, 138, 0.12);
+    --tag-fg: #f0d2b2;
+    --tag-br: rgba(225, 183, 138, 0.22);
+  }
+}
+
 *{box-sizing:border-box}
-html,body{margin:0;padding:0;background:linear-gradient(180deg,#09101f 0%,#0b1020 100%);color:var(--text);font:15px/1.55 Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+html,body{margin:0;padding:0}
+body{
+  background:
+    radial-gradient(circle at top left, var(--bg-grad-1) 0%, transparent 36%),
+    radial-gradient(circle at top right, var(--bg-grad-2) 0%, transparent 28%),
+    linear-gradient(180deg, var(--bg-grad-1) 0%, var(--bg) 100%);
+  color:var(--text);
+  font:15px/1.6 Inter, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+}
 a{color:var(--accent);text-decoration:none}
 a:hover{text-decoration:underline}
-.wrap{max-width:1440px;margin:0 auto;padding:28px 20px 40px}
+.wrap{max-width:1480px;margin:0 auto;padding:28px 20px 40px}
 .hero{
-  background:linear-gradient(135deg,rgba(122,162,255,.18),rgba(77,226,197,.10));
-  border:1px solid rgba(122,162,255,.2);
-  border-radius:28px;
-  padding:28px;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.14), rgba(255,255,255,0.02)),
+    var(--panel-strong);
+  border:1px solid var(--border-strong);
+  border-radius:var(--radius-xl);
+  padding:30px;
   box-shadow:var(--shadow);
+  backdrop-filter: blur(12px);
   margin-bottom:22px;
 }
-.hero h1{margin:0 0 10px;font-size:34px;line-height:1.1}
-.hero p{margin:0;color:var(--muted);max-width:920px}
+.hero h1{margin:0 0 12px;font-size:34px;line-height:1.1;letter-spacing:-0.02em}
+.hero p{margin:0;color:var(--muted);max-width:980px}
 .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:18px}
 .card{
-  background:rgba(19,26,46,.92);
+  background:var(--panel);
   border:1px solid var(--border);
-  border-radius:var(--radius);
-  padding:20px;
+  border-radius:var(--radius-lg);
+  padding:22px;
   box-shadow:var(--shadow);
+  backdrop-filter: blur(12px);
 }
-.card h2,.card h3{margin:0 0 12px}
+.card h2,.card h3{margin:0 0 12px;letter-spacing:-0.01em}
 .card p{margin:0 0 10px}
 .rules{grid-column:span 5}
 .best{grid-column:span 7}
 .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px}
 .stat{
-  background:rgba(255,255,255,.03);
-  border:1px solid rgba(255,255,255,.06);
-  border-radius:14px;
-  padding:14px
+  background:var(--panel-soft);
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+  padding:16px;
 }
 .stat .label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em}
-.stat .value{font-size:26px;font-weight:700;margin-top:4px}
+.stat .value{font-size:28px;font-weight:700;margin-top:4px}
 .list-clean{margin:0;padding-left:20px}
 .list-clean li{margin:8px 0}
 .table-card{margin-top:18px;padding:0;overflow:hidden}
 .table-head{
-  display:flex;justify-content:space-between;align-items:center;
-  padding:18px 20px;border-bottom:1px solid var(--border)
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:18px 20px;
+  border-bottom:1px solid var(--border)
 }
 .table-head h2{margin:0;font-size:20px}
 .table-wrap{overflow:auto}
-table{width:100%;border-collapse:collapse;min-width:1320px}
-th,td{padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.06);vertical-align:top}
+table{width:100%;border-collapse:collapse;min-width:1380px}
+th,td{padding:14px 16px;border-bottom:1px solid var(--border);vertical-align:top}
 th{
-  position:sticky;top:0;background:#17213a;color:#dce6ff;
-  text-align:left;font-size:13px;letter-spacing:.03em
+  position:sticky;
+  top:0;
+  background:rgba(255,248,240,0.92);
+  color:var(--text);
+  text-align:left;
+  font-size:13px;
+  letter-spacing:.03em;
+  backdrop-filter: blur(10px);
 }
-tr:hover td{background:rgba(255,255,255,.025)}
-.selected-row td{background:rgba(122,162,255,.08)}
+@media (prefers-color-scheme: dark) {
+  th{background:rgba(57,45,34,0.94)}
+}
+tr:hover td{background:rgba(255,255,255,0.06)}
+.selected-row td{background:rgba(139,94,60,0.08)}
 .badge{
-  display:inline-flex;align-items:center;justify-content:center;
-  min-width:92px;padding:6px 10px;border-radius:999px;font-size:12px;
-  font-weight:700;letter-spacing:.02em;border:1px solid transparent
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:100px;
+  padding:6px 10px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:700;
+  letter-spacing:.02em;
+  border:1px solid transparent
 }
-.badge.pass{background:rgba(31,157,99,.18);color:#88f0bc;border-color:rgba(31,157,99,.35)}
-.badge.timing{background:rgba(210,155,25,.18);color:#ffd66b;border-color:rgba(210,155,25,.35)}
-.badge.signoff{background:rgba(209,91,91,.18);color:#ffadad;border-color:rgba(209,91,91,.35)}
-.badge.mixed{background:rgba(194,108,229,.18);color:#ebb0ff;border-color:rgba(194,108,229,.35)}
-.badge.flow{background:rgba(107,114,128,.18);color:#c8cfdb;border-color:rgba(107,114,128,.35)}
+.badge.pass{background:var(--pass-bg);color:var(--pass-fg);border-color:var(--pass-br)}
+.badge.timing{background:var(--timing-bg);color:var(--timing-fg);border-color:var(--timing-br)}
+.badge.signoff{background:var(--signoff-bg);color:var(--signoff-fg);border-color:var(--signoff-br)}
+.badge.mixed{background:var(--mixed-bg);color:var(--mixed-fg);border-color:var(--mixed-br)}
+.badge.flow{background:var(--flow-bg);color:var(--flow-fg);border-color:var(--flow-br)}
 .tag{
-  display:inline-block;padding:4px 10px;border-radius:999px;
-  background:rgba(77,226,197,.14);border:1px solid rgba(77,226,197,.28);
-  color:#8ff2de;font-size:12px;font-weight:700
+  display:inline-block;
+  padding:4px 10px;
+  border-radius:999px;
+  background:var(--tag-bg);
+  border:1px solid var(--tag-br);
+  color:var(--tag-fg);
+  font-size:12px;
+  font-weight:700
 }
 .actions{display:flex;gap:8px;flex-wrap:wrap}
 .btn{
-  display:inline-flex;align-items:center;justify-content:center;
-  padding:8px 12px;border-radius:10px;border:1px solid rgba(122,162,255,.28);
-  background:rgba(122,162,255,.10);color:#dfe7ff;font-weight:600;font-size:13px
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:8px 12px;
+  border-radius:10px;
+  border:1px solid rgba(139,94,60,0.20);
+  background:rgba(139,94,60,0.08);
+  color:var(--text);
+  font-weight:600;
+  font-size:13px
 }
 .btn.secondary{
-  border-color:rgba(255,255,255,.10);background:rgba(255,255,255,.04);color:#d5def5
+  border-color:var(--border-strong);
+  background:rgba(255,255,255,0.08);
+  color:var(--text)
 }
 .muted{color:var(--muted)}
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 .small{font-size:13px}
-@media (max-width:1000px){
+.section-note{
+  color:var(--muted);
+  font-size:14px;
+  margin-top:6px;
+}
+@media (max-width:1080px){
   .rules,.best{grid-column:1 / -1}
   .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
   .hero h1{font-size:28px}
 }
-@media (max-width:640px){
+@media (max-width:680px){
   .stats{grid-template-columns:1fr}
 }
 """
@@ -470,7 +590,7 @@ tr:hover td{background:rgba(255,255,255,.025)}
         copy_tree_if_exists(base_dir / "final" / "gds", run_dir / "final" / "gds")
 
         title = html.escape(f"{row.get('_variant','')} — {row.get('_run_dir','')}")
-        reason = html.escape(row.get("selection_reason", ""))
+        remarks = html.escape(row.get("selection_reason", ""))
         gds_link = f'<a class="btn" href="{html.escape(gds_name)}">Download GDS</a>' if gds_name else '<span class="muted">No GDS copied</span>'
         viewer_link = f'<a class="btn secondary" href="{TT_GDS_VIEWER_URL}" target="_blank" rel="noopener noreferrer">Open GDS Viewer (TinyTapeout)</a>'
 
@@ -485,14 +605,14 @@ tr:hover td{background:rgba(255,255,255,.025)}
   <div class="wrap">
     <div class="hero">
       <h1>{title}</h1>
-      <p>Per-run detail page with timing, area, power, signoff, downloadable layout data, and viewer access.</p>
+      <p>Per-run detail page with timing, area, power, signoff, downloadable layout data, and external viewer access.</p>
     </div>
 
     <div class="grid">
       <section class="card rules">
         <h2>Run status</h2>
         <p>{badge_html(row.get('status',''))}</p>
-        <p><strong>Selection rationale:</strong> {reason}</p>
+        <p><strong>Remarks:</strong> {remarks}</p>
         <p><a class="btn secondary" href="../../index.html">Back to ASIC Flow Run Explorer</a></p>
       </section>
 
@@ -561,6 +681,8 @@ tr:hover td{background:rgba(255,255,255,.025)}
     total_runs = len(sorted_rows)
     pass_count = sum(1 for row in sorted_rows if row.get("status") == "PASS")
     fail_count = total_runs - pass_count
+    best_clock = str(sorted_rows[0].get("clock_ns", "")) if sorted_rows else ""
+
     best_text = ""
     if sorted_rows:
         best = sorted_rows[0]
@@ -571,7 +693,7 @@ tr:hover td{background:rgba(255,255,255,.025)}
           <p><strong>Run:</strong> {html.escape(str(best.get('_variant','')))} / {html.escape(str(best.get('_run_dir','')))}</p>
           <p><strong>Clock:</strong> {html.escape(str(best.get('clock_ns','')))} ns</p>
           <p><strong>Status:</strong> {badge_html(best.get('status',''))}</p>
-          <p><strong>Why selected:</strong> {html.escape(str(best.get('selection_reason','')))}</p>
+          <p><strong>Remarks:</strong> {html.escape(str(best.get('selection_reason','')))}</p>
         </section>
         """
 
@@ -652,6 +774,7 @@ tr:hover td{background:rgba(255,255,255,.025)}
 
     <section class="card" style="margin-top:18px">
       <h2>Run overview</h2>
+      <p class="section-note">Light canvas styling follows the browser theme automatically. The selected best run is pinned at the top of the table below.</p>
       <div class="stats">
         <div class="stat">
           <div class="label">Total runs</div>
@@ -667,7 +790,7 @@ tr:hover td{background:rgba(255,255,255,.025)}
         </div>
         <div class="stat">
           <div class="label">Best clock</div>
-          <div class="value">{html.escape(str(sorted_rows[0].get('clock_ns','') if sorted_rows else ''))}</div>
+          <div class="value">{html.escape(best_clock)}</div>
         </div>
       </div>
     </section>
@@ -690,7 +813,7 @@ tr:hover td{background:rgba(255,255,255,.025)}
               <th>LVS</th>
               <th>Antenna</th>
               <th>Status</th>
-              <th>Selection rationale</th>
+              <th>Remarks</th>
               <th>GDS</th>
               <th>GDS Viewer (TinyTapeout)</th>
             </tr>
