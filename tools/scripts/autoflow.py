@@ -217,8 +217,8 @@ def choose_next_clock(
 ) -> Tuple[Optional[float], float]:
     """
     Lower clock period is harder.
-    pass_bound = smallest known passing clock
-    fail_bound = largest known failing clock below the current passing bound
+    pass_bound = smallest known passing clock.
+    fail_bound = largest known failing clock below that passing bound.
     """
 
     next_step = step
@@ -276,8 +276,10 @@ def main() -> None:
     safe_variant = resolve_variant(args.variant)
     _variant_path = safe_variant_to_path(safe_variant)
 
-    out_root = ROOT / args.out_root
+    out_root = (ROOT / args.out_root).resolve()
     out_root.mkdir(parents=True, exist_ok=True)
+    (out_root / ".autoflow_started").write_text("started\n", encoding="utf-8")
+    print(f"Autoflow out_root = {out_root}", flush=True)
 
     summary_path_env: Optional[Path] = None
     if os.environ.get("GITHUB_STEP_SUMMARY_PATH"):
@@ -457,6 +459,7 @@ def main() -> None:
             "attempt_dir": str(attempt_dir.relative_to(ROOT)),
         }
         history.append(history_row)
+        write_history_files(out_root, history)
 
         log_line = (
             f"Attempt {attempt} | {rounded_current} ns | {status} | "
