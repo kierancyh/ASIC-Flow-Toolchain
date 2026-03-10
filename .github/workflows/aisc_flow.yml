@@ -491,9 +491,14 @@ jobs:
 
       - name: Pull OpenLane2 container
         run: docker pull "${OPENLANE2_IMAGE}"
-
+        
       - name: Run auto sweep
         env:
+          INPUT_MIN_CLOCK_NS: ${{ inputs.min_clock_ns }}
+          INPUT_MAX_CLOCK_NS: ${{ inputs.max_clock_ns }}
+          INPUT_INITIAL_STEP_NS: ${{ inputs.initial_step_ns }}
+          INPUT_TOLERANCE_NS: ${{ inputs.tolerance_ns }}
+          INPUT_MAX_ITERS: ${{ inputs.max_iters }}
           INPUT_SYNTH_STRATEGY: ${{ inputs.synth_strategy }}
           INPUT_RUN_ANTENNA_REPAIR: ${{ inputs.run_antenna_repair }}
           INPUT_RUN_HEURISTIC_DIODE_INSERTION: ${{ inputs.run_heuristic_diode_insertion }}
@@ -503,21 +508,33 @@ jobs:
         run: |
           set -euo pipefail
 
+          MIN_CLOCK_NS="${INPUT_MIN_CLOCK_NS:-5}"
+          MAX_CLOCK_NS="${INPUT_MAX_CLOCK_NS:-200}"
+          INITIAL_STEP_NS="${INPUT_INITIAL_STEP_NS:-20}"
+          TOLERANCE_NS="${INPUT_TOLERANCE_NS:-1}"
+          MAX_ITERS="${INPUT_MAX_ITERS:-8}"
+
+          SYNTH_STRATEGY="${INPUT_SYNTH_STRATEGY:-AREA 3}"
+          RUN_ANTENNA_REPAIR="${INPUT_RUN_ANTENNA_REPAIR:-true}"
+          RUN_HEURISTIC_DIODE_INSERTION="${INPUT_RUN_HEURISTIC_DIODE_INSERTION:-true}"
+          RUN_POST_GRT_DESIGN_REPAIR="${INPUT_RUN_POST_GRT_DESIGN_REPAIR:-true}"
+          RUN_POST_GRT_RESIZER_TIMING="${INPUT_RUN_POST_GRT_RESIZER_TIMING:-false}"
+
           python tools/scripts/autoflow.py \
             --variant "${{ needs.plan.outputs.resolved_variant }}" \
             --pdk-root "${PDK_ROOT}" \
             --openlane-image "${OPENLANE2_IMAGE}" \
             --start-clock-ns "${{ needs.plan.outputs.resolved_start_clock_ns }}" \
-            --min-clock-ns "${{ inputs.min_clock_ns }}" \
-            --max-clock-ns "${{ inputs.max_clock_ns }}" \
-            --initial-step-ns "${{ inputs.initial_step_ns }}" \
-            --tolerance-ns "${{ inputs.tolerance_ns }}" \
-            --max-iters "${{ inputs.max_iters }}" \
-            --synth-strategy "${INPUT_SYNTH_STRATEGY:-AREA 3}" \
-            --run-antenna-repair "${INPUT_RUN_ANTENNA_REPAIR:-true}" \
-            --run-heuristic-diode-insertion "${INPUT_RUN_HEURISTIC_DIODE_INSERTION:-true}" \
-            --run-post-grt-design-repair "${INPUT_RUN_POST_GRT_DESIGN_REPAIR:-true}" \
-            --run-post-grt-resizer-timing "${INPUT_RUN_POST_GRT_RESIZER_TIMING:-false}" \
+            --min-clock-ns "${MIN_CLOCK_NS}" \
+            --max-clock-ns "${MAX_CLOCK_NS}" \
+            --initial-step-ns "${INITIAL_STEP_NS}" \
+            --tolerance-ns "${TOLERANCE_NS}" \
+            --max-iters "${MAX_ITERS}" \
+            --synth-strategy "${SYNTH_STRATEGY}" \
+            --run-antenna-repair "${RUN_ANTENNA_REPAIR}" \
+            --run-heuristic-diode-insertion "${RUN_HEURISTIC_DIODE_INSERTION}" \
+            --run-post-grt-design-repair "${RUN_POST_GRT_DESIGN_REPAIR}" \
+            --run-post-grt-resizer-timing "${RUN_POST_GRT_RESIZER_TIMING}" \
             --out-root "ci_out/${{ needs.plan.outputs.resolved_variant }}"
 
       - name: Upload autoflow artifact
