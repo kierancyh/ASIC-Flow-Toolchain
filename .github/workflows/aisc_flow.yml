@@ -85,6 +85,8 @@ concurrency:
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
 
 env:
   PYTHONUNBUFFERED: "1"
@@ -106,11 +108,9 @@ jobs:
       open_pdks_rev: ${{ steps.tools.outputs.open_pdks_rev }}
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
@@ -259,11 +259,9 @@ jobs:
         clock_ns: ${{ fromJson(needs.plan.outputs.coarse_matrix_json) }}
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
@@ -324,6 +322,48 @@ jobs:
             --run-post-grt-resizer-timing "${RUN_POST_GRT_RESIZER_TIMING:-false}" \
             --out-root "ci_out/${VARIANT}"
 
+      - name: Enrich coarse artifact bundle
+        if: always()
+        shell: bash
+        env:
+          VARIANT: ${{ needs.plan.outputs.resolved_variant }}
+        run: |
+          set -euo pipefail
+          BASE_DIR="ci_out/${VARIANT}"
+          ATTEMPT_DIR="$(find "${BASE_DIR}" -maxdepth 1 -mindepth 1 -type d -name 'clk_*ns_*' | head -n 1 || true)"
+
+          if [ -z "${ATTEMPT_DIR}" ]; then
+            echo "No attempt directory found under ${BASE_DIR}"
+            exit 0
+          fi
+
+          RUN_DIR=""
+          if [ -f "${ATTEMPT_DIR}/run_dir_used.txt" ]; then
+            RUN_DIR="$(head -n 1 "${ATTEMPT_DIR}/run_dir_used.txt" | tr -d '\r' || true)"
+          fi
+
+          if [ -n "${RUN_DIR}" ] && [ -d "${RUN_DIR}" ]; then
+            mkdir -p "${ATTEMPT_DIR}/openlane_run"
+            cp -rv "${RUN_DIR}/." "${ATTEMPT_DIR}/openlane_run/" || true
+
+            if [ -f "${RUN_DIR}/final/metrics.json" ] && [ ! -f "${ATTEMPT_DIR}/metrics_raw.json" ]; then
+              cp -v "${RUN_DIR}/final/metrics.json" "${ATTEMPT_DIR}/metrics_raw.json" || true
+            fi
+
+            if [ -d "${RUN_DIR}/final/gds" ]; then
+              mkdir -p "${ATTEMPT_DIR}/final/gds"
+              cp -rv "${RUN_DIR}/final/gds/." "${ATTEMPT_DIR}/final/gds/" || true
+            fi
+
+            python tools/scripts/render_gds.py --run-root "${RUN_DIR}" --out "${ATTEMPT_DIR}/renders" || true
+          fi
+
+          python tools/scripts/build_layout_viewer.py --out-dir "${ATTEMPT_DIR}" || true
+
+          if [ -f "${ATTEMPT_DIR}/viewer.html" ] && [ ! -f "${ATTEMPT_DIR}/index.html" ]; then
+            cp -v "${ATTEMPT_DIR}/viewer.html" "${ATTEMPT_DIR}/index.html"
+          fi
+
       - name: Upload coarse artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -341,16 +381,11 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix_json: ${{ steps.select.outputs.matrix_json }}
-      lowest_pass_ns: ${{ steps.select.outputs.lowest_pass_ns }}
-      highest_fail_below_pass_ns: ${{ steps.select.outputs.highest_fail_below_pass_ns }}
-      reason: ${{ steps.select.outputs.reason }}
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
@@ -384,11 +419,9 @@ jobs:
         clock_ns: ${{ fromJson(needs.select-refine-1.outputs.matrix_json) }}
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
@@ -449,6 +482,48 @@ jobs:
             --run-post-grt-resizer-timing "${RUN_POST_GRT_RESIZER_TIMING:-false}" \
             --out-root "ci_out/${VARIANT}"
 
+      - name: Enrich refine-1 artifact bundle
+        if: always()
+        shell: bash
+        env:
+          VARIANT: ${{ needs.plan.outputs.resolved_variant }}
+        run: |
+          set -euo pipefail
+          BASE_DIR="ci_out/${VARIANT}"
+          ATTEMPT_DIR="$(find "${BASE_DIR}" -maxdepth 1 -mindepth 1 -type d -name 'clk_*ns_*' | head -n 1 || true)"
+
+          if [ -z "${ATTEMPT_DIR}" ]; then
+            echo "No attempt directory found under ${BASE_DIR}"
+            exit 0
+          fi
+
+          RUN_DIR=""
+          if [ -f "${ATTEMPT_DIR}/run_dir_used.txt" ]; then
+            RUN_DIR="$(head -n 1 "${ATTEMPT_DIR}/run_dir_used.txt" | tr -d '\r' || true)"
+          fi
+
+          if [ -n "${RUN_DIR}" ] && [ -d "${RUN_DIR}" ]; then
+            mkdir -p "${ATTEMPT_DIR}/openlane_run"
+            cp -rv "${RUN_DIR}/." "${ATTEMPT_DIR}/openlane_run/" || true
+
+            if [ -f "${RUN_DIR}/final/metrics.json" ] && [ ! -f "${ATTEMPT_DIR}/metrics_raw.json" ]; then
+              cp -v "${RUN_DIR}/final/metrics.json" "${ATTEMPT_DIR}/metrics_raw.json" || true
+            fi
+
+            if [ -d "${RUN_DIR}/final/gds" ]; then
+              mkdir -p "${ATTEMPT_DIR}/final/gds"
+              cp -rv "${RUN_DIR}/final/gds/." "${ATTEMPT_DIR}/final/gds/" || true
+            fi
+
+            python tools/scripts/render_gds.py --run-root "${RUN_DIR}" --out "${ATTEMPT_DIR}/renders" || true
+          fi
+
+          python tools/scripts/build_layout_viewer.py --out-dir "${ATTEMPT_DIR}" || true
+
+          if [ -f "${ATTEMPT_DIR}/viewer.html" ] && [ ! -f "${ATTEMPT_DIR}/index.html" ]; then
+            cp -v "${ATTEMPT_DIR}/viewer.html" "${ATTEMPT_DIR}/index.html"
+          fi
+
       - name: Upload refine-1 artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -467,16 +542,11 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix_json: ${{ steps.select.outputs.matrix_json }}
-      lowest_pass_ns: ${{ steps.select.outputs.lowest_pass_ns }}
-      highest_fail_below_pass_ns: ${{ steps.select.outputs.highest_fail_below_pass_ns }}
-      reason: ${{ steps.select.outputs.reason }}
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
@@ -510,11 +580,9 @@ jobs:
         clock_ns: ${{ fromJson(needs.select-refine-2.outputs.matrix_json) }}
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
@@ -575,6 +643,48 @@ jobs:
             --run-post-grt-resizer-timing "${RUN_POST_GRT_RESIZER_TIMING:-false}" \
             --out-root "ci_out/${VARIANT}"
 
+      - name: Enrich refine-2 artifact bundle
+        if: always()
+        shell: bash
+        env:
+          VARIANT: ${{ needs.plan.outputs.resolved_variant }}
+        run: |
+          set -euo pipefail
+          BASE_DIR="ci_out/${VARIANT}"
+          ATTEMPT_DIR="$(find "${BASE_DIR}" -maxdepth 1 -mindepth 1 -type d -name 'clk_*ns_*' | head -n 1 || true)"
+
+          if [ -z "${ATTEMPT_DIR}" ]; then
+            echo "No attempt directory found under ${BASE_DIR}"
+            exit 0
+          fi
+
+          RUN_DIR=""
+          if [ -f "${ATTEMPT_DIR}/run_dir_used.txt" ]; then
+            RUN_DIR="$(head -n 1 "${ATTEMPT_DIR}/run_dir_used.txt" | tr -d '\r' || true)"
+          fi
+
+          if [ -n "${RUN_DIR}" ] && [ -d "${RUN_DIR}" ]; then
+            mkdir -p "${ATTEMPT_DIR}/openlane_run"
+            cp -rv "${RUN_DIR}/." "${ATTEMPT_DIR}/openlane_run/" || true
+
+            if [ -f "${RUN_DIR}/final/metrics.json" ] && [ ! -f "${ATTEMPT_DIR}/metrics_raw.json" ]; then
+              cp -v "${RUN_DIR}/final/metrics.json" "${ATTEMPT_DIR}/metrics_raw.json" || true
+            fi
+
+            if [ -d "${RUN_DIR}/final/gds" ]; then
+              mkdir -p "${ATTEMPT_DIR}/final/gds"
+              cp -rv "${RUN_DIR}/final/gds/." "${ATTEMPT_DIR}/final/gds/" || true
+            fi
+
+            python tools/scripts/render_gds.py --run-root "${RUN_DIR}" --out "${ATTEMPT_DIR}/renders" || true
+          fi
+
+          python tools/scripts/build_layout_viewer.py --out-dir "${ATTEMPT_DIR}" || true
+
+          if [ -f "${ATTEMPT_DIR}/viewer.html" ] && [ ! -f "${ATTEMPT_DIR}/index.html" ]; then
+            cp -v "${ATTEMPT_DIR}/viewer.html" "${ATTEMPT_DIR}/index.html"
+          fi
+
       - name: Upload refine-2 artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -594,11 +704,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
@@ -606,6 +714,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: downloaded_artifacts
+
+      - name: Show downloaded structure
+        run: |
+          find downloaded_artifacts -maxdepth 8 -type f | sort | sed -n '1,400p'
 
       - name: Fail if no metrics were downloaded
         run: |
@@ -625,10 +737,17 @@ jobs:
             --repo-slug "${{ github.repository }}" \
             --run-id "${{ github.run_id }}"
 
+      - name: Validate explorer outputs
+        run: |
+          test -f _compare_summary.md
+          test -f _best_run.json
+          test -f _site/index.html
+          find _site -maxdepth 4 -type f | sort | sed -n '1,300p'
+
       - name: Append compare summary
         if: always()
         run: |
-          test -f _compare_summary.md && cat _compare_summary.md >> "$GITHUB_STEP_SUMMARY" || true
+          cat _compare_summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload compare summary
         if: always()
@@ -664,16 +783,12 @@ jobs:
     needs: compare-runs
     if: ${{ needs.compare-runs.result == 'success' }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-      - name: Configure GitHub Pages
+      - name: Configure Pages
         uses: actions/configure-pages@v5
 
       - name: Download run explorer artifact
@@ -687,6 +802,14 @@ jobs:
         with:
           path: _site
 
-      - name: Deploy Pages site
+      - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Workflow Summary
+        run: |
+          {
+            echo "## Published Run Explorer"
+            echo ""
+            echo "- [Open ASIC Flow Run Explorer](${{ steps.deployment.outputs.page_url }})"
+          } >> "$GITHUB_STEP_SUMMARY"

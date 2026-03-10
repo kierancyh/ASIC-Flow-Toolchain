@@ -9,8 +9,6 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-TT_VIEWER_URL = "https://gds-viewer.tinytapeout.com/"
-
 
 def to_float(v: Any) -> Optional[float]:
     try:
@@ -51,8 +49,13 @@ def timing_ok(row: Dict[str, str]) -> bool:
 
 
 def classify_status(row: Dict[str, str]) -> str:
+    raw_status = str(row.get("status", "")).strip().upper()
+    if raw_status in {"FLOW_FAIL", "INCOMPLETE"}:
+        return "FLOW_FAIL"
+
     clean = signoff_clean(row)
     ok = timing_ok(row)
+
     if clean and ok:
         return "PASS"
     if clean and not ok:
@@ -64,6 +67,7 @@ def classify_status(row: Dict[str, str]) -> str:
 
 def explain_row(row: Dict[str, str]) -> str:
     reasons: List[str] = []
+
     swns = to_float(row.get("setup_wns_ns"))
     stns = to_float(row.get("setup_tns_ns"))
     drc = to_float(row.get("drc_errors"))
@@ -95,7 +99,6 @@ def best_sort_key(row: Dict[str, str]) -> Tuple[Any, ...]:
     ant = to_float(row.get("antenna_violations"))
     drc = to_float(row.get("drc_errors"))
     lvs = to_float(row.get("lvs_errors"))
-
     penalty = sum(v or 0.0 for v in (ant, drc, lvs))
 
     return (
@@ -116,9 +119,22 @@ def first_gds_path(base_dir: Path) -> Optional[Path]:
     return candidates[0] if candidates else None
 
 
+def copy_tree_if_exists(src: Path, dst: Path) -> None:
+    if not src.exists():
+        return
+    if src.is_dir():
+        if dst.exists():
+            shutil.rmtree(dst)
+        shutil.copytree(src, dst)
+    else:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+
+
 def collect_rows(artifacts_root: Path) -> List[Dict[str, str]]:
     rows: List[Dict[str, str]] = []
     seen: set[Path] = set()
+
     patterns = [
         "**/ci_out/*/clk_*ns_*/metrics.csv",
         "**/*/clk_*ns_*/metrics.csv",
@@ -145,8 +161,16 @@ def collect_rows(artifacts_root: Path) -> List[Dict[str, str]]:
             row["_run_dir"] = base_dir.name
             row["_base_dir"] = str(base_dir)
             row["_metrics_csv"] = str(csv_path.relative_to(artifacts_root))
-            row["_metrics_raw"] = str((base_dir / "metrics_raw.json").relative_to(artifacts_root)) if (base_dir / "metrics_raw.json").exists() else ""
-            row["_gds_dir"] = str((base_dir / "final" / "gds").relative_to(artifacts_root)) if (base_dir / "final" / "gds").exists() else ""
+            row["_metrics_raw"] = (
+                str((base_dir / "metrics_raw.json").relative_to(artifacts_root))
+                if (base_dir / "metrics_raw.json").exists()
+                else ""
+            )
+            row["_gds_dir"] = (
+                str((base_dir / "final" / "gds").relative_to(artifacts_root))
+                if (base_dir / "final" / "gds").exists()
+                else ""
+            )
             row["status"] = classify_status(row)
             row["selection_reason"] = explain_row(row)
 
@@ -228,6 +252,7 @@ def write_summary_md(path: Path, rows: List[Dict[str, str]]) -> None:
     lines.append("")
     lines.append("| Variant | Run | Clock (ns) | Setup WNS | Setup TNS | DRC | LVS | Antenna | Status | Why not best / why selected |")
     lines.append("|---|---|---:|---:|---:|---:|---:|---:|---|---|")
+
     for idx, row in enumerate(sorted(rows, key=best_sort_key)):
         why = row.get("selection_reason", "")
         if idx == 0:
@@ -237,6 +262,7 @@ def write_summary_md(path: Path, rows: List[Dict[str, str]]) -> None:
             f"{md_escape(row.get('setup_wns_ns'))} | {md_escape(row.get('setup_tns_ns'))} | {md_escape(row.get('drc_errors'))} | "
             f"{md_escape(row.get('lvs_errors'))} | {md_escape(row.get('antenna_violations'))} | {md_escape(row.get('status'))} | {md_escape(why)} |"
         )
+
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -253,165 +279,21 @@ def write_best_json(path: Path, rows: List[Dict[str, str]]) -> Dict[str, Any]:
     return best
 
 
-def build_site(site_root: Path, rows: List[Dict[str, str]]) -> None:
-    site_root.mkdir(parents=True, exist_ok=True)
-    runs_root = site_root / "runs"
-    runs_root.mkdir(parents=True, exist_ok=True)
-
-    sorted_rows = sorted(rows, key=best_sort_key)
-
-    for row in sorted_rows:
-        slug = f"{row.get('_variant', 'variant').replace('/', '_')}__{row.get('_run_dir', 'run')}"
-        row["_site_slug"] = slug
-        run_dir = runs_root / slug
-        run_dir.mkdir(parents=True, exist_ok=True)
-
-        gds_name = ""
-        gds_src = Path(row["_gds_path"]) if row.get("_gds_path") else None
-        if gds_src and gds_src.exists():
-            gds_name = copy_named_gds(gds_src, run_dir, row.get("_run_dir", "layout"))
-        row["_site_gds"] = gds_name
-
-        metrics_src = Path(row["_base_dir"]) / "metrics.csv"
-        if metrics_src.exists():
-            shutil.copy2(metrics_src, run_dir / "metrics.csv")
-        metrics_raw_src = Path(row["_base_dir"]) / "metrics_raw.json"
-        if metrics_raw_src.exists():
-            shutil.copy2(metrics_raw_src, run_dir / "metrics_raw.json")
-        run_meta_src = Path(row["_base_dir"]) / "run_meta.json"
-        if run_meta_src.exists():
-            shutil.copy2(run_meta_src, run_dir / "run_meta.json")
-
-        title = html.escape(f"{row.get('_variant','')} — {row.get('_run_dir','')}")
-        reason = html.escape(row.get("selection_reason", ""))
-        gds_link = f'<a href="{html.escape(gds_name)}">Download {html.escape(gds_name)}</a>' if gds_name else "No GDS copied"
-
-        run_html = f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title}</title>
-<style>
-body{{font-family:Arial,sans-serif;max-width:1100px;margin:2rem auto;padding:0 1rem;line-height:1.5}}
-code{{background:#f4f4f4;padding:.15rem .35rem;border-radius:4px}}
-table{{border-collapse:collapse;width:100%;margin-bottom:1rem}}
-th,td{{border:1px solid #ddd;padding:.55rem;text-align:left}}
-th{{background:#f7f7f7}}
-.pill{{display:inline-block;padding:.2rem .5rem;border-radius:999px;background:#efefef}}
-</style></head><body>
-<h1>{title}</h1>
-<p><a href="../../index.html">Back to ASIC Flow Run Explorer</a></p>
-<p><strong>Status:</strong> <span class="pill">{html.escape(row.get('status', ''))}</span></p>
-<p><strong>Selection rationale:</strong> {reason}</p>
-<ul>
-<li>{gds_link}</li>
-<li><a href="{TT_VIEWER_URL}" target="_blank" rel="noopener noreferrer">Open TinyTapeout Viewer</a></li>
-</ul>
-
-<h2>Timing</h2>
-<table>
-<tr><th>Metric</th><th>Value</th></tr>
-<tr><td>clock_ns</td><td>{html.escape(str(row.get('clock_ns', '')))}</td></tr>
-<tr><td>clock_ns_reported</td><td>{html.escape(str(row.get('clock_ns_reported', '')))}</td></tr>
-<tr><td>setup_wns_ns</td><td>{html.escape(str(row.get('setup_wns_ns', '')))}</td></tr>
-<tr><td>setup_tns_ns</td><td>{html.escape(str(row.get('setup_tns_ns', '')))}</td></tr>
-<tr><td>hold_wns_ns</td><td>{html.escape(str(row.get('hold_wns_ns', '')))}</td></tr>
-<tr><td>hold_tns_ns</td><td>{html.escape(str(row.get('hold_tns_ns', '')))}</td></tr>
-<tr><td>status</td><td>{html.escape(str(row.get('status', '')))}</td></tr>
-</table>
-
-<h2>Area and power</h2>
-<table>
-<tr><th>Metric</th><th>Value</th></tr>
-<tr><td>core_area_um2</td><td>{html.escape(str(row.get('core_area_um2', '')))}</td></tr>
-<tr><td>die_area_um2</td><td>{html.escape(str(row.get('die_area_um2', '')))}</td></tr>
-<tr><td>instance_count</td><td>{html.escape(str(row.get('instance_count', '')))}</td></tr>
-<tr><td>utilization_pct</td><td>{html.escape(str(row.get('utilization_pct', '')))}</td></tr>
-<tr><td>wire_length_um</td><td>{html.escape(str(row.get('wire_length_um', '')))}</td></tr>
-<tr><td>vias_count</td><td>{html.escape(str(row.get('vias_count', '')))}</td></tr>
-<tr><td>power_total_W</td><td>{html.escape(str(row.get('power_total_W', '')))}</td></tr>
-<tr><td>power_internal_W</td><td>{html.escape(str(row.get('power_internal_W', '')))}</td></tr>
-<tr><td>power_switching_W</td><td>{html.escape(str(row.get('power_switching_W', '')))}</td></tr>
-<tr><td>power_leakage_W</td><td>{html.escape(str(row.get('power_leakage_W', '')))}</td></tr>
-<tr><td>power_source</td><td>{html.escape(str(row.get('power_source', '')))}</td></tr>
-</table>
-
-<h2>Signoff and physical</h2>
-<table>
-<tr><th>Metric</th><th>Value</th></tr>
-<tr><td>drc_errors</td><td>{html.escape(str(row.get('drc_errors', '')))}</td></tr>
-<tr><td>drc_errors_klayout</td><td>{html.escape(str(row.get('drc_errors_klayout', '')))}</td></tr>
-<tr><td>drc_errors_magic</td><td>{html.escape(str(row.get('drc_errors_magic', '')))}</td></tr>
-<tr><td>lvs_errors</td><td>{html.escape(str(row.get('lvs_errors', '')))}</td></tr>
-<tr><td>antenna_violations</td><td>{html.escape(str(row.get('antenna_violations', '')))}</td></tr>
-<tr><td>antenna_violating_nets</td><td>{html.escape(str(row.get('antenna_violating_nets', '')))}</td></tr>
-<tr><td>antenna_violating_pins</td><td>{html.escape(str(row.get('antenna_violating_pins', '')))}</td></tr>
-<tr><td>ir_drop_worst_V</td><td>{html.escape(str(row.get('ir_drop_worst_V', '')))}</td></tr>
-</table>
-</body></html>"""
-        (run_dir / "index.html").write_text(run_html, encoding="utf-8")
-
-    rows_html = []
-    for idx, row in enumerate(sorted_rows):
-        run_page = f"runs/{html.escape(row['_site_slug'])}/index.html"
-        gds_html = html.escape(row.get("_site_gds", ""))
-        if row.get("_site_gds"):
-            gds_html = f'<a href="runs/{html.escape(row["_site_slug"])}/{html.escape(row["_site_gds"])}">{html.escape(row["_site_gds"])}</a>'
-        selected = "SELECTED" if idx == 0 else ""
-        rows_html.append(
-            "<tr>"
-            f"<td>{html.escape(selected)}</td>"
-            f"<td><a href=\"{run_page}\">{html.escape(str(row.get('_variant','')))} / {html.escape(str(row.get('_run_dir','')))}</a></td>"
-            f"<td>{html.escape(str(row.get('clock_ns','')))}</td>"
-            f"<td>{html.escape(str(row.get('setup_wns_ns','')))}</td>"
-            f"<td>{html.escape(str(row.get('setup_tns_ns','')))}</td>"
-            f"<td>{html.escape(str(row.get('drc_errors','')))}</td>"
-            f"<td>{html.escape(str(row.get('lvs_errors','')))}</td>"
-            f"<td>{html.escape(str(row.get('antenna_violations','')))}</td>"
-            f"<td>{html.escape(str(row.get('status','')))}</td>"
-            f"<td>{html.escape(str(row.get('selection_reason','')))}</td>"
-            f"<td>{gds_html}</td>"
-            f"<td><a href=\"{TT_VIEWER_URL}\" target=\"_blank\" rel=\"noopener noreferrer\">Open viewer</a></td>"
-            "</tr>"
-        )
-
-    best_text = ""
-    if sorted_rows:
-        best = sorted_rows[0]
-        best_text = (
-            f"<p><strong>Best run:</strong> {html.escape(str(best.get('_variant','')))} / {html.escape(str(best.get('_run_dir','')))} "
-            f"at {html.escape(str(best.get('clock_ns','')))} ns.</p>"
-            f"<p><strong>Why this run won:</strong> {html.escape(str(best.get('selection_reason','')))}</p>"
-        )
-
-    index_html = f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ASIC Flow Run Explorer</title>
-<style>
-body{{font-family:Arial,sans-serif;max-width:1400px;margin:2rem auto;padding:0 1rem;line-height:1.5}}
-table{{border-collapse:collapse;width:100%}}th,td{{border:1px solid #ddd;padding:.55rem;text-align:left;vertical-align:top}}th{{background:#f7f7f7}}code{{background:#f4f4f4;padding:.15rem .35rem;border-radius:4px}}
-</style></head><body>
-<h1>ASIC Flow Run Explorer</h1>
-<p>This published site is a quick-access summary for all collected runs. It explains why the best run was selected and why the other runs were not selected.</p>
-<p><strong>Best-run selection order:</strong> clean signoff plus non-negative setup timing first, then clean signoff over signoff failures, then lower requested clock period, then better setup WNS/TNS tie-breakers.</p>
-{best_text}
-<table>
-<thead><tr><th>Best</th><th>Run</th><th>Clock (ns)</th><th>Setup WNS</th><th>Setup TNS</th><th>DRC</th><th>LVS</th><th>Antenna</th><th>Status</th><th>Why selected / why not best</th><th>Named GDS</th><th>TinyTapeout viewer</th></tr></thead>
-<tbody>
-{''.join(rows_html)}
-</tbody></table>
-</body></html>"""
-    (site_root / "index.html").write_text(index_html, encoding="utf-8")
-
-
 def package_best_bundle(best_bundle_dir: Path, best: Dict[str, Any]) -> None:
     best_bundle_dir.mkdir(parents=True, exist_ok=True)
     if not best:
         return
 
     base_dir = Path(best["_base_dir"])
-    for name in ("metrics.csv", "metrics_raw.json", "run_meta.json"):
+
+    for name in ("metrics.csv", "metrics_raw.json", "run_meta.json", "viewer.html", "index.html", "README.txt"):
         src = base_dir / name
         if src.exists():
             shutil.copy2(src, best_bundle_dir / name)
+
+    copy_tree_if_exists(base_dir / "renders", best_bundle_dir / "renders")
+    copy_tree_if_exists(base_dir / "final" / "gds", best_bundle_dir / "final" / "gds")
+    copy_tree_if_exists(base_dir / "openlane_run", best_bundle_dir / "openlane_run")
 
     gds_src = Path(best["_gds_path"]) if best.get("_gds_path") else None
     if gds_src and gds_src.exists():
@@ -426,6 +308,167 @@ def package_best_bundle(best_bundle_dir: Path, best: Dict[str, Any]) -> None:
         "gds_file": f"{best.get('_run_dir', 'best_run')}.gds" if best.get("_gds_path") else "",
     }
     (best_bundle_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+
+def build_site(site_root: Path, rows: List[Dict[str, str]]) -> None:
+    site_root.mkdir(parents=True, exist_ok=True)
+    runs_root = site_root / "runs"
+    runs_root.mkdir(parents=True, exist_ok=True)
+
+    sorted_rows = sorted(rows, key=best_sort_key)
+
+    for row in sorted_rows:
+        slug = f"{row.get('_variant', 'variant').replace('/', '_')}__{row.get('_run_dir', 'run')}"
+        row["_site_slug"] = slug
+        run_dir = runs_root / slug
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+        base_dir = Path(row["_base_dir"])
+        gds_name = ""
+
+        gds_src = Path(row["_gds_path"]) if row.get("_gds_path") else None
+        if gds_src and gds_src.exists():
+            gds_name = copy_named_gds(gds_src, run_dir, row.get("_run_dir", "layout"))
+            row["_site_gds"] = gds_name
+
+        for name in ("metrics.csv", "metrics_raw.json", "run_meta.json", "viewer.html", "README.txt"):
+            src = base_dir / name
+            if src.exists():
+                shutil.copy2(src, run_dir / name)
+
+        copy_tree_if_exists(base_dir / "renders", run_dir / "renders")
+        copy_tree_if_exists(base_dir / "final" / "gds", run_dir / "final" / "gds")
+
+        title = html.escape(f"{row.get('_variant','')} — {row.get('_run_dir','')}")
+        reason = html.escape(row.get("selection_reason", ""))
+        gds_link = f'<a href="{html.escape(gds_name)}">Download {html.escape(gds_name)}</a>' if gds_name else "No GDS copied"
+        viewer_link = '<a href="viewer.html">Open viewer</a>' if (run_dir / "viewer.html").exists() else "Viewer not copied"
+
+        run_html = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{title}</title>
+</head>
+<body>
+  <h1>{title}</h1>
+  <p><a href="../../index.html">Back to ASIC Flow Run Explorer</a></p>
+  <p><strong>Status:</strong> {html.escape(row.get('status', ''))}</p>
+  <p><strong>Selection rationale:</strong> {reason}</p>
+  <ul>
+    <li>{gds_link}</li>
+    <li>{viewer_link}</li>
+  </ul>
+
+  <h2>Timing</h2>
+  <table border="1" cellspacing="0" cellpadding="4">
+    <tr><th>Metric</th><th>Value</th></tr>
+    <tr><td>clock_ns</td><td>{html.escape(str(row.get('clock_ns', '')))}</td></tr>
+    <tr><td>clock_ns_reported</td><td>{html.escape(str(row.get('clock_ns_reported', '')))}</td></tr>
+    <tr><td>setup_wns_ns</td><td>{html.escape(str(row.get('setup_wns_ns', '')))}</td></tr>
+    <tr><td>setup_tns_ns</td><td>{html.escape(str(row.get('setup_tns_ns', '')))}</td></tr>
+    <tr><td>hold_wns_ns</td><td>{html.escape(str(row.get('hold_wns_ns', '')))}</td></tr>
+    <tr><td>hold_tns_ns</td><td>{html.escape(str(row.get('hold_tns_ns', '')))}</td></tr>
+    <tr><td>status</td><td>{html.escape(str(row.get('status', '')))}</td></tr>
+  </table>
+
+  <h2>Area and power</h2>
+  <table border="1" cellspacing="0" cellpadding="4">
+    <tr><th>Metric</th><th>Value</th></tr>
+    <tr><td>core_area_um2</td><td>{html.escape(str(row.get('core_area_um2', '')))}</td></tr>
+    <tr><td>die_area_um2</td><td>{html.escape(str(row.get('die_area_um2', '')))}</td></tr>
+    <tr><td>instance_count</td><td>{html.escape(str(row.get('instance_count', '')))}</td></tr>
+    <tr><td>utilization_pct</td><td>{html.escape(str(row.get('utilization_pct', '')))}</td></tr>
+    <tr><td>wire_length_um</td><td>{html.escape(str(row.get('wire_length_um', '')))}</td></tr>
+    <tr><td>vias_count</td><td>{html.escape(str(row.get('vias_count', '')))}</td></tr>
+    <tr><td>power_total_W</td><td>{html.escape(str(row.get('power_total_W', '')))}</td></tr>
+    <tr><td>power_internal_W</td><td>{html.escape(str(row.get('power_internal_W', '')))}</td></tr>
+    <tr><td>power_switching_W</td><td>{html.escape(str(row.get('power_switching_W', '')))}</td></tr>
+    <tr><td>power_leakage_W</td><td>{html.escape(str(row.get('power_leakage_W', '')))}</td></tr>
+  </table>
+
+  <h2>Signoff and physical</h2>
+  <table border="1" cellspacing="0" cellpadding="4">
+    <tr><th>Metric</th><th>Value</th></tr>
+    <tr><td>drc_errors</td><td>{html.escape(str(row.get('drc_errors', '')))}</td></tr>
+    <tr><td>lvs_errors</td><td>{html.escape(str(row.get('lvs_errors', '')))}</td></tr>
+    <tr><td>antenna_violations</td><td>{html.escape(str(row.get('antenna_violations', '')))}</td></tr>
+    <tr><td>ir_drop_worst_V</td><td>{html.escape(str(row.get('ir_drop_worst_V', '')))}</td></tr>
+  </table>
+</body>
+</html>
+"""
+        (run_dir / "index.html").write_text(run_html, encoding="utf-8")
+
+    rows_html: List[str] = []
+    for idx, row in enumerate(sorted_rows):
+        run_page = f"runs/{html.escape(row['_site_slug'])}/index.html"
+        viewer_page = f"runs/{html.escape(row['_site_slug'])}/viewer.html"
+        gds_page = ""
+        if row.get("_site_gds"):
+            gds_page = f'runs/{html.escape(row["_site_slug"])}/{html.escape(row["_site_gds"])}'
+        selected = "SELECTED" if idx == 0 else ""
+
+        viewer_link = f'<a href="{viewer_page}">Open viewer</a>'
+        gds_link = f'<a href="{gds_page}">{html.escape(str(row.get("_site_gds","")))}</a>' if gds_page else ""
+
+        rows_html.append(
+            "<tr>"
+            f"<td>{html.escape(selected)}</td>"
+            f"<td><a href=\"{run_page}\">{html.escape(str(row.get('_variant','')))} / {html.escape(str(row.get('_run_dir','')))}</a></td>"
+            f"<td>{html.escape(str(row.get('clock_ns','')))}</td>"
+            f"<td>{html.escape(str(row.get('setup_wns_ns','')))}</td>"
+            f"<td>{html.escape(str(row.get('setup_tns_ns','')))}</td>"
+            f"<td>{html.escape(str(row.get('drc_errors','')))}</td>"
+            f"<td>{html.escape(str(row.get('lvs_errors','')))}</td>"
+            f"<td>{html.escape(str(row.get('antenna_violations','')))}</td>"
+            f"<td>{html.escape(str(row.get('status','')))}</td>"
+            f"<td>{html.escape(str(row.get('selection_reason','')))}</td>"
+            f"<td>{gds_link}</td>"
+            f"<td>{viewer_link}</td>"
+            "</tr>"
+        )
+
+    best_text = ""
+    if sorted_rows:
+        best = sorted_rows[0]
+        best_text = (
+            f"<p><strong>Chosen best run:</strong> "
+            f"{html.escape(str(best.get('_variant','')))} / {html.escape(str(best.get('_run_dir','')))} "
+            f"({html.escape(str(best.get('clock_ns','')))} ns)</p>"
+            f"<p><strong>Why selected:</strong> {html.escape(str(best.get('selection_reason','')))}</p>"
+        )
+
+    index_html = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>ASIC Flow Run Explorer</title>
+</head>
+<body>
+  <h1>ASIC Flow Run Explorer</h1>
+  {best_text}
+  <table border="1" cellspacing="0" cellpadding="4">
+    <tr>
+      <th>Selected</th>
+      <th>Run</th>
+      <th>Clock (ns)</th>
+      <th>Setup WNS</th>
+      <th>Setup TNS</th>
+      <th>DRC</th>
+      <th>LVS</th>
+      <th>Antenna</th>
+      <th>Status</th>
+      <th>Selection rationale</th>
+      <th>GDS</th>
+      <th>Viewer</th>
+    </tr>
+    {''.join(rows_html)}
+  </table>
+</body>
+</html>
+"""
+    (site_root / "index.html").write_text(index_html, encoding="utf-8")
 
 
 def main() -> None:
