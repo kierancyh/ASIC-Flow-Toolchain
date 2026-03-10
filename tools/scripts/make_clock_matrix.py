@@ -14,7 +14,7 @@ def format_json_number(value: float):
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Generate the initial coarse auto-sweep clock matrix."
+        description="Generate the initial coarse auto-sweep clock matrix centered on the baseline and capped at 0."
     )
     ap.add_argument("--start-clock-ns", type=float, required=True)
     ap.add_argument("--min-clock-ns", type=float, required=True)
@@ -23,7 +23,7 @@ def main() -> None:
     args = ap.parse_args()
 
     start_clock = float(args.start_clock_ns)
-    min_clock = float(args.min_clock_ns)
+    min_clock = max(0.0, float(args.min_clock_ns))
     max_clock = float(args.max_clock_ns)
     step = float(args.step_ns)
 
@@ -32,29 +32,53 @@ def main() -> None:
     if min_clock > max_clock:
         raise SystemExit("--min-clock-ns must be <= --max-clock-ns")
 
-    values = set()
+    ordered: List[float] = []
+    seen = set()
+
+    def add(value: float) -> None:
+        key = round(value, 6)
+        if key in seen:
+            return
+        if min_clock <= key <= max_clock:
+            seen.add(key)
+            ordered.append(key)
+
     k = 0
-
     while True:
-        added = False
+        added_any = False
 
-        upper = start_clock + (k * step)
-        lower = start_clock - (k * step)
+        if k == 0:
+            if min_clock <= start_clock <= max_clock:
+                add(start_clock)
+                added_any = True
+        else:
+            down = start_clock - (k * step)
+            up = start_clock + (k * step)
 
-        if min_clock <= upper <= max_clock:
-            values.add(round(upper, 6))
-            added = True
+            if down < min_clock:
+                down = min_clock
 
-        if min_clock <= lower <= max_clock:
-            values.add(round(lower, 6))
-            added = True
+            if min_clock <= down <= max_clock:
+                before = len(ordered)
+                add(down)
+                added_any = added_any or (len(ordered) > before)
 
-        if not added and upper > max_clock and lower < min_clock:
+            if min_clock <= up <= max_clock:
+                before = len(ordered)
+                add(up)
+                added_any = added_any or (len(ordered) > before)
+
+        lower_edge = start_clock - (k * step)
+        upper_edge = start_clock + (k * step)
+
+        if not added_any and lower_edge < min_clock and upper_edge > max_clock:
+            break
+
+        if min_clock in seen and upper_edge > max_clock:
             break
 
         k += 1
 
-    ordered: List[float] = sorted(values, reverse=True)
     print(json.dumps([format_json_number(v) for v in ordered]))
 
 

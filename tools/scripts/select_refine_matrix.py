@@ -59,8 +59,13 @@ def timing_ok(row: Dict[str, str]) -> bool:
 
 
 def classify(row: Dict[str, str]) -> str:
+    raw_status = str(row.get("status", "")).strip().upper()
+    if raw_status in {"FLOW_FAIL", "INCOMPLETE"}:
+        return "FLOW_FAIL"
+
     clean = signoff_clean(row)
     ok = timing_ok(row)
+
     if clean and ok:
         return "PASS"
     if clean and not ok:
@@ -171,7 +176,7 @@ def main() -> None:
 
     if lowest_pass is None:
         reason = "No passing clocks found yet; moving upward to easier clock periods."
-        top_tried = max(tried) if tried else args.min_clock_ns
+        top_tried = max(tried) if tried else max(0.0, args.min_clock_ns)
 
         for i in range(1, args.batch_size + 1):
             candidate = round(top_tried + (i * args.expand_step_ns), 6)
