@@ -227,7 +227,7 @@ jobs:
           elif variant_override:
               label = f'{variant_override} (variant.yaml ll_policy.synth_strategy)'
           else:
-              label = 'Default (not overridden)'
+              label = 'Default'
 
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
               print(f'summary_synth_strategy={label}', file=f)

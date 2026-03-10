@@ -187,12 +187,18 @@ def write_placeholder_metrics(
     (attempt_dir / "metrics.md").write_text("\n".join(md_lines), encoding="utf-8")
 
 
-def write_run_meta(attempt_dir: Path, *, variant: str, clock_ns: float) -> None:
+def write_run_meta(
+    attempt_dir: Path,
+    *,
+    variant: str,
+    clock_ns: float,
+    synth_strategy_override: str = "",
+) -> None:
     meta = {
         "variant": variant,
         "clock_ns_requested": clock_ns,
         "github_run_id": os.environ.get("GITHUB_RUN_ID", ""),
-        "synth_strategy_override": args.synth_strategy or "",
+        "synth_strategy_override": synth_strategy_override or "",
         "artifact_name": f"autoflow-{variant}",
     }
     (attempt_dir / "run_meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
@@ -460,7 +466,12 @@ def main() -> None:
 
         attempt_dir = out_root / f"clk_{clock_label(rounded_current)}ns_attempt_{attempt:02d}"
         attempt_dir.mkdir(parents=True, exist_ok=True)
-        write_run_meta(attempt_dir, variant=safe_variant, clock_ns=rounded_current)
+        write_run_meta(
+            attempt_dir,
+            variant=safe_variant,
+            clock_ns=rounded_current,
+            synth_strategy_override=args.synth_strategy,
+        )
         (attempt_dir / "attempt_started.txt").write_text(
             f"attempt={attempt}\nclock_ns={rounded_current}\nstarted_at={int(time.time())}\n",
             encoding="utf-8",
@@ -591,13 +602,13 @@ def main() -> None:
         history.append(history_row)
         write_history_files(out_root, history)
 
-        log_line = (
+        print(
             f"Attempt {attempt} | {rounded_current} ns | {status} | "
             f"WNS={history_row['setup_wns_ns']} | TNS={history_row['setup_tns_ns']} | "
             f"DRC={history_row['drc_errors']} | LVS={history_row['lvs_errors']} | "
-            f"ANT={history_row['antenna_violations']} | RC={openlane_rc} | {reason}"
+            f"ANT={history_row['antenna_violations']} | RC={openlane_rc} | {reason}",
+            flush=True,
         )
-        print(log_line, flush=True)
         append_summary(
             summary_path,
             f"| {attempt} | {rounded_current} | {status} | {history_row['setup_wns_ns']} | "
