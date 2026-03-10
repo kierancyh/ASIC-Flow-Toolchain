@@ -152,6 +152,18 @@ def append_summary(summary_path: Optional[Path], line: str) -> None:
             f.write("\n")
 
 
+def gh_group_start(title: str) -> None:
+    print(f"::group::{title}", flush=True)
+
+
+def gh_group_end() -> None:
+    print("::endgroup::", flush=True)
+
+
+def gh_debug(message: str) -> None:
+    print(f"::debug::{message}", flush=True)
+
+
 def read_csv_row(path: Path) -> Dict[str, str]:
     if not path.exists():
         return {}
@@ -569,187 +581,216 @@ def main() -> None:
         tried.add(rounded_current)
 
         current_step = step_sequence[step_index]
-        print(f"\n=== Attempt {attempt}: trying {rounded_current} ns (step {current_step} ns) ===", flush=True)
+        group_title = f"Attempt {attempt} - {rounded_current} ns"
+        gh_group_start(group_title)
+        try:
+            print(f"\n=== Attempt {attempt}: trying {rounded_current} ns (step {current_step} ns) ===", flush=True)
+            gh_debug(f"variant={safe_variant}")
+            gh_debug(f"clock_ns={rounded_current}")
+            gh_debug(f"current_step_ns={current_step}")
+            gh_debug(f"step_index={step_index}")
+            gh_debug(f"min_clock_ns={args.min_clock_ns}")
+            gh_debug(f"max_clock_ns={args.max_clock_ns}")
+            gh_debug(f"out_root={out_root}")
 
-        attempt_dir = out_root / f"clk_{clock_label(rounded_current)}ns_attempt_{attempt:02d}"
-        attempt_dir.mkdir(parents=True, exist_ok=True)
-        write_run_meta(
-            attempt_dir,
-            variant=safe_variant,
-            clock_ns=rounded_current,
-            synth_strategy_override=args.synth_strategy,
-        )
-        (attempt_dir / "attempt_started.txt").write_text(
-            f"attempt={attempt}\nclock_ns={rounded_current}\nstarted_at={int(time.time())}\n",
-            encoding="utf-8",
-        )
+            attempt_dir = out_root / f"clk_{clock_label(rounded_current)}ns_attempt_{attempt:02d}"
+            attempt_dir.mkdir(parents=True, exist_ok=True)
+            write_run_meta(
+                attempt_dir,
+                variant=safe_variant,
+                clock_ns=rounded_current,
+                synth_strategy_override=args.synth_strategy,
+            )
+            (attempt_dir / "attempt_started.txt").write_text(
+                f"attempt={attempt}\nclock_ns={rounded_current}\nstarted_at={int(time.time())}\n",
+                encoding="utf-8",
+            )
 
-        cfg_path = ROOT / "config.json"
-        sh(
-            [
-                sys.executable,
-                str(ROOT / "tools/scripts/gen_config.py"),
-                "--variant",
-                safe_variant,
-                "--clock_ns",
-                str(rounded_current),
-                "--pdk-root",
-                args.pdk_root,
-                "--synth-strategy",
-                args.synth_strategy,
-                "--run-antenna-repair",
-                args.run_antenna_repair,
-                "--run-heuristic-diode-insertion",
-                args.run_heuristic_diode_insertion,
-                "--run-post-grt-design-repair",
-                args.run_post_grt_design_repair,
-                "--run-post-grt-resizer-timing",
-                args.run_post_grt_resizer_timing,
-                "--out",
-                str(cfg_path),
-            ],
-            cwd=ROOT,
-            check=True,
-        )
-
-        start_ts = time.time()
-        openlane_rc = sh(
-            [
-                "docker",
-                "run",
-                "--rm",
-                "-v",
-                f"{ROOT}:/work",
-                "-v",
-                f"{args.pdk_root}:/pdk",
-                "-w",
-                "/work",
-                args.openlane_image,
-                "bash",
-                "-lc",
-                "python3 -m openlane --pdk-root /pdk config.json",
-            ],
-            cwd=ROOT,
-            check=False,
-        )
-        print(f"OpenLane return code: {openlane_rc}", flush=True)
-
-        run_dir = find_latest_run_dir(start_ts)
-        if run_dir is None:
-            print("No run directory detected after attempt.", flush=True)
-            (attempt_dir / "run_dir_used.txt").write_text("(missing)\n", encoding="utf-8")
-            write_placeholder_metrics(attempt_dir, clock_ns=rounded_current, status="FLOW_FAIL")
-        else:
-            print(f"Using run directory: {run_dir}", flush=True)
-            (attempt_dir / "run_dir_used.txt").write_text(f"{run_dir}\n", encoding="utf-8")
-
-            extract_rc = sh(
+            cfg_path = ROOT / "config.json"
+            gh_debug(f"config_path={cfg_path}")
+            sh(
                 [
                     sys.executable,
-                    str(ROOT / "tools/scripts/extract_metrics.py"),
-                    str(run_dir),
-                    "--out",
-                    str(attempt_dir),
-                    "--clock-ns",
+                    str(ROOT / "tools/scripts/gen_config.py"),
+                    "--variant",
+                    safe_variant,
+                    "--clock_ns",
                     str(rounded_current),
-                ],
-                cwd=ROOT,
-                check=False,
-            )
-            print(f"extract_metrics return code: {extract_rc}", flush=True)
-
-            sh(
-                [
-                    sys.executable,
-                    str(ROOT / "tools/scripts/render_gds.py"),
-                    "--run-root",
-                    str(run_dir),
+                    "--pdk-root",
+                    args.pdk_root,
+                    "--synth-strategy",
+                    args.synth_strategy,
+                    "--run-antenna-repair",
+                    args.run_antenna_repair,
+                    "--run-heuristic-diode-insertion",
+                    args.run_heuristic_diode_insertion,
+                    "--run-post-grt-design-repair",
+                    args.run_post_grt_design_repair,
+                    "--run-post-grt-resizer-timing",
+                    args.run_post_grt_resizer_timing,
                     "--out",
-                    str(attempt_dir / "renders"),
+                    str(cfg_path),
                 ],
                 cwd=ROOT,
-                check=False,
+                check=True,
             )
-            sh(
+
+            start_ts = time.time()
+            openlane_rc = sh(
                 [
-                    sys.executable,
-                    str(ROOT / "tools/scripts/build_layout_viewer.py"),
-                    "--out-dir",
-                    str(attempt_dir),
+                    "docker",
+                    "run",
+                    "--rm",
+                    "-v",
+                    f"{ROOT}:/work",
+                    "-v",
+                    f"{args.pdk_root}:/pdk",
+                    "-w",
+                    "/work",
+                    args.openlane_image,
+                    "bash",
+                    "-lc",
+                    "python3 -m openlane --pdk-root /pdk config.json",
                 ],
                 cwd=ROOT,
                 check=False,
             )
+            print(f"OpenLane return code: {openlane_rc}", flush=True)
+            gh_debug(f"openlane_rc={openlane_rc}")
 
-            maybe_copy_metrics_raw(run_dir, attempt_dir)
-            maybe_copy_gds(run_dir, attempt_dir)
-
-            if not (attempt_dir / "metrics.csv").exists():
+            run_dir = find_latest_run_dir(start_ts)
+            if run_dir is None:
+                print("No run directory detected after attempt.", flush=True)
+                gh_debug("run_dir=(missing)")
+                (attempt_dir / "run_dir_used.txt").write_text("(missing)\n", encoding="utf-8")
                 write_placeholder_metrics(attempt_dir, clock_ns=rounded_current, status="FLOW_FAIL")
+            else:
+                print(f"Using run directory: {run_dir}", flush=True)
+                gh_debug(f"run_dir={run_dir}")
+                (attempt_dir / "run_dir_used.txt").write_text(f"{run_dir}\n", encoding="utf-8")
 
-        metrics_row = read_csv_row(attempt_dir / "metrics.csv")
-        status, reason = classify_attempt(run_dir=run_dir, metrics_row=metrics_row, openlane_rc=openlane_rc)
+                extract_rc = sh(
+                    [
+                        sys.executable,
+                        str(ROOT / "tools/scripts/extract_metrics.py"),
+                        str(run_dir),
+                        "--out",
+                        str(attempt_dir),
+                        "--clock-ns",
+                        str(rounded_current),
+                    ],
+                    cwd=ROOT,
+                    check=False,
+                )
+                print(f"extract_metrics return code: {extract_rc}", flush=True)
+                gh_debug(f"extract_metrics_rc={extract_rc}")
 
-        history_row: Dict[str, Any] = {
-            "attempt": attempt,
-            "clock_ns": rounded_current,
-            "status": status,
-            "selection_reason": reason,
-            "setup_wns_ns": metrics_row.get("setup_wns_ns", ""),
-            "setup_tns_ns": metrics_row.get("setup_tns_ns", ""),
-            "hold_wns_ns": metrics_row.get("hold_wns_ns", ""),
-            "hold_tns_ns": metrics_row.get("hold_tns_ns", ""),
-            "drc_errors": metrics_row.get("drc_errors", ""),
-            "lvs_errors": metrics_row.get("lvs_errors", ""),
-            "antenna_violations": metrics_row.get("antenna_violations", ""),
-            "openlane_rc": openlane_rc,
-            "run_dir": str(run_dir) if run_dir else "",
-            "attempt_dir": str(attempt_dir.relative_to(ROOT)),
-        }
-        history.append(history_row)
-        write_history_files(out_root, history)
+                render_rc = sh(
+                    [
+                        sys.executable,
+                        str(ROOT / "tools/scripts/render_gds.py"),
+                        "--run-root",
+                        str(run_dir),
+                        "--out",
+                        str(attempt_dir / "renders"),
+                    ],
+                    cwd=ROOT,
+                    check=False,
+                )
+                gh_debug(f"render_gds_rc={render_rc}")
 
-        print(
-            f"Attempt {attempt} | {rounded_current} ns | {status} | "
-            f"WNS={history_row['setup_wns_ns']} | TNS={history_row['setup_tns_ns']} | "
-            f"DRC={history_row['drc_errors']} | LVS={history_row['lvs_errors']} | "
-            f"ANT={history_row['antenna_violations']} | RC={openlane_rc} | {reason}",
-            flush=True,
-        )
-        append_summary(
-            summary_path,
-            f"| {attempt} | {rounded_current} | {status} | {history_row['setup_wns_ns']} | "
-            f"{history_row['setup_tns_ns']} | {history_row['drc_errors']} | {history_row['lvs_errors']} | "
-            f"{history_row['antenna_violations']} | {openlane_rc} | {reason} |",
-        )
+                viewer_rc = sh(
+                    [
+                        sys.executable,
+                        str(ROOT / "tools/scripts/build_layout_viewer.py"),
+                        "--out-dir",
+                        str(attempt_dir),
+                    ],
+                    cwd=ROOT,
+                    check=False,
+                )
+                gh_debug(f"build_layout_viewer_rc={viewer_rc}")
 
-        if status == "PASS":
-            pass_clocks.append(rounded_current)
-        elif status == "FLOW_FAIL":
-            flow_fail_clocks.append(rounded_current)
-        else:
-            usable_fail_clocks.append(rounded_current)
+                maybe_copy_metrics_raw(run_dir, attempt_dir)
+                maybe_copy_gds(run_dir, attempt_dir)
 
-        next_clock, step_index, next_reason = choose_next_clock(
-            tested_clocks=sorted(tried),
-            pass_clocks=pass_clocks,
-            usable_fail_clocks=usable_fail_clocks,
-            flow_fail_clocks=flow_fail_clocks,
-            step_sequence=step_sequence,
-            step_index=step_index,
-            min_clock_ns=args.min_clock_ns,
-            max_clock_ns=args.max_clock_ns,
-            tolerance_ns=args.tolerance_ns,
-        )
-        if next_clock is None:
-            print(next_reason, flush=True)
-            append_summary(summary_path, "")
-            append_summary(summary_path, f"Adaptive controller: {next_reason}")
-            break
+                if not (attempt_dir / "metrics.csv").exists():
+                    write_placeholder_metrics(attempt_dir, clock_ns=rounded_current, status="FLOW_FAIL")
 
-        print(f"Adaptive controller: next clock = {next_clock} ns | {next_reason}", flush=True)
-        append_summary(summary_path, f"Adaptive controller: next clock = {next_clock} ns | {next_reason}")
-        current = next_clock
+            metrics_row = read_csv_row(attempt_dir / "metrics.csv")
+            status, reason = classify_attempt(run_dir=run_dir, metrics_row=metrics_row, openlane_rc=openlane_rc)
+
+            history_row: Dict[str, Any] = {
+                "attempt": attempt,
+                "clock_ns": rounded_current,
+                "status": status,
+                "selection_reason": reason,
+                "setup_wns_ns": metrics_row.get("setup_wns_ns", ""),
+                "setup_tns_ns": metrics_row.get("setup_tns_ns", ""),
+                "hold_wns_ns": metrics_row.get("hold_wns_ns", ""),
+                "hold_tns_ns": metrics_row.get("hold_tns_ns", ""),
+                "drc_errors": metrics_row.get("drc_errors", ""),
+                "lvs_errors": metrics_row.get("lvs_errors", ""),
+                "antenna_violations": metrics_row.get("antenna_violations", ""),
+                "openlane_rc": openlane_rc,
+                "run_dir": str(run_dir) if run_dir else "",
+                "attempt_dir": str(attempt_dir.relative_to(ROOT)),
+            }
+            history.append(history_row)
+            write_history_files(out_root, history)
+
+            print(
+                f"Attempt {attempt} | {rounded_current} ns | {status} | "
+                f"WNS={history_row['setup_wns_ns']} | TNS={history_row['setup_tns_ns']} | "
+                f"DRC={history_row['drc_errors']} | LVS={history_row['lvs_errors']} | "
+                f"ANT={history_row['antenna_violations']} | RC={openlane_rc} | {reason}",
+                flush=True,
+            )
+            append_summary(
+                summary_path,
+                f"| {attempt} | {rounded_current} | {status} | {history_row['setup_wns_ns']} | "
+                f"{history_row['setup_tns_ns']} | {history_row['drc_errors']} | {history_row['lvs_errors']} | "
+                f"{history_row['antenna_violations']} | {openlane_rc} | {reason} |",
+            )
+
+            if status == "PASS":
+                pass_clocks.append(rounded_current)
+            elif status == "FLOW_FAIL":
+                flow_fail_clocks.append(rounded_current)
+            else:
+                usable_fail_clocks.append(rounded_current)
+
+            gh_debug(f"pass_clocks={pass_clocks}")
+            gh_debug(f"usable_fail_clocks={usable_fail_clocks}")
+            gh_debug(f"flow_fail_clocks={flow_fail_clocks}")
+
+            next_clock, step_index, next_reason = choose_next_clock(
+                tested_clocks=sorted(tried),
+                pass_clocks=pass_clocks,
+                usable_fail_clocks=usable_fail_clocks,
+                flow_fail_clocks=flow_fail_clocks,
+                step_sequence=step_sequence,
+                step_index=step_index,
+                min_clock_ns=args.min_clock_ns,
+                max_clock_ns=args.max_clock_ns,
+                tolerance_ns=args.tolerance_ns,
+            )
+
+            gh_debug(f"next_clock={next_clock}")
+            gh_debug(f"next_step_index={step_index}")
+            gh_debug(f"next_reason={next_reason}")
+
+            if next_clock is None:
+                print(next_reason, flush=True)
+                append_summary(summary_path, "")
+                append_summary(summary_path, f"Adaptive controller: {next_reason}")
+                break
+
+            print(f"Adaptive controller: next clock = {next_clock} ns | {next_reason}", flush=True)
+            append_summary(summary_path, f"Adaptive controller: next clock = {next_clock} ns | {next_reason}")
+            current = next_clock
+        finally:
+            gh_group_end()
 
     write_history_files(out_root, history)
 
