@@ -253,6 +253,12 @@ def maybe_copy_gds(run_dir: Path, attempt_dir: Path) -> None:
             shutil.copy2(gds, dst_gds / gds.name)
 
 
+def has_valid_timing_metrics(metrics_row: Dict[str, str]) -> bool:
+    swns = to_float(metrics_row.get("setup_wns_ns"))
+    stns = to_float(metrics_row.get("setup_tns_ns"))
+    return swns is not None and stns is not None
+
+
 def classify_metrics_row(metrics_row: Dict[str, str]) -> Tuple[str, str]:
     reasons: List[str] = []
 
@@ -297,14 +303,19 @@ def classify_attempt(
     if not metrics_row:
         return "FLOW_FAIL", f"No metrics.csv was produced for discovered run dir {run_dir} (rc={openlane_rc})."
 
-    status, reason = classify_metrics_row(metrics_row)
-
     raw_status = str(metrics_row.get("status", "")).strip().upper()
+    timing_present = has_valid_timing_metrics(metrics_row)
+
+    if openlane_rc != 0 and not timing_present:
+        return "FLOW_FAIL", f"OpenLane exited with code {openlane_rc} and no valid timing metrics were produced."
+
     if raw_status in {"INCOMPLETE", "FLOW_FAIL"}:
         return "FLOW_FAIL", f"Metrics were incomplete for run dir {run_dir} (rc={openlane_rc})."
 
-    if openlane_rc != 0 and status == "PASS":
-        return "FLOW_FAIL", f"OpenLane exited with code {openlane_rc} despite PASS-like metrics."
+    status, reason = classify_metrics_row(metrics_row)
+
+    if status == "PASS" and not timing_present:
+        return "FLOW_FAIL", "Run was marked PASS-like but valid setup timing metrics are missing."
 
     if openlane_rc != 0:
         return status, f"{reason}; OpenLane rc={openlane_rc}"
@@ -659,4 +670,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()  
+    main()

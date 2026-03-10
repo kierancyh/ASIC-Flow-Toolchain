@@ -12,170 +12,79 @@ from typing import Any, Dict, List, Optional, Tuple
 
 TT_GDS_VIEWER_URL = "https://gds-viewer.tinytapeout.com/"
 
-THEME_EDITOR_SNIPPET = r"""
-<style>
-  .theme-editor {
-    position: fixed;
-    top: 18px;
-    right: 18px;
-    width: 320px;
-    max-width: calc(100vw - 24px);
-    padding: 16px;
-    border-radius: 16px;
-    border: 1px solid rgba(116, 92, 62, 0.2);
-    background: rgba(255, 250, 243, 0.92);
-    backdrop-filter: blur(12px);
-    box-shadow: 0 12px 30px rgba(0,0,0,0.12);
-    z-index: 9999;
-    font: 14px/1.4 Inter, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-  }
 
-  @media (prefers-color-scheme: dark) {
-    .theme-editor {
-      background: rgba(44, 35, 26, 0.94);
-      border-color: rgba(219, 194, 161, 0.16);
-      color: #f3e7d6;
-    }
-    .theme-editor input,
-    .theme-editor select,
-    .theme-editor button {
-      background: rgba(255,255,255,0.05);
-      color: #f3e7d6;
-      border: 1px solid rgba(219, 194, 161, 0.16);
-    }
-  }
+def build_theme_widget(button_id: str, panel_id: str) -> str:
+    return f"""
+<div class="theme-control">
+  <button class="theme-launch" id="{button_id}" type="button" aria-expanded="false" aria-controls="{panel_id}">
+    Appearance ⚙️
+  </button>
 
-  .theme-editor h3 {
-    margin: 0 0 12px;
-    font-size: 16px;
-  }
+  <div class="theme-widget" id="{panel_id}" hidden>
+    <div class="theme-widget-body">
+      <h3>Page appearance</h3>
 
-  .theme-editor .row {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 6px;
-    margin-bottom: 12px;
-  }
-
-  .theme-editor label {
-    font-size: 12px;
-    opacity: 0.85;
-    font-weight: 600;
-  }
-
-  .theme-editor input,
-  .theme-editor select,
-  .theme-editor button {
-    width: 100%;
-    padding: 8px 10px;
-    border-radius: 10px;
-    border: 1px solid rgba(116, 92, 62, 0.2);
-    font: inherit;
-  }
-
-  .theme-editor .inline {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-  }
-
-  .theme-editor .btn-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    margin-top: 6px;
-  }
-
-  .theme-editor .toggle-btn {
-    margin-bottom: 10px;
-    cursor: pointer;
-  }
-
-  .theme-editor.collapsed .editor-body {
-    display: none;
-  }
-</style>
-
-<div class="theme-editor" id="themeEditor">
-  <button class="toggle-btn" id="toggleEditor">Appearance ⚙️</button>
-
-  <div class="editor-body">
-    <h3>Page appearance</h3>
-
-    <div class="row">
-      <label for="presetTheme">Theme preset</label>
-      <select id="presetTheme">
-        <option value="canvas">Canvas Beige</option>
-        <option value="darkwood">Dark Wood</option>
-        <option value="forest">Forest</option>
-        <option value="slate">Slate</option>
-      </select>
-    </div>
-
-    <div class="inline">
-      <div class="row">
-        <label for="bgColor">Base background</label>
-        <input type="color" id="bgColor" value="#f4ecdf">
+      <div class="theme-row">
+        <label for="{panel_id}_preset">Theme preset</label>
+        <select id="{panel_id}_preset">
+          <option value="canvas">Canvas Beige</option>
+          <option value="darkwood">Dark Wood</option>
+          <option value="forest">Forest</option>
+          <option value="slate">Slate</option>
+        </select>
       </div>
-      <div class="row">
-        <label for="accentColor">Accent</label>
-        <input type="color" id="accentColor" value="#8b5e3c">
+
+      <div class="theme-inline">
+        <div class="theme-row">
+          <label for="{panel_id}_bg">Base background</label>
+          <input type="color" id="{panel_id}_bg" value="#f4ecdf">
+        </div>
+        <div class="theme-row">
+          <label for="{panel_id}_accent">Accent</label>
+          <input type="color" id="{panel_id}_accent" value="#8b5e3c">
+        </div>
       </div>
-    </div>
 
-    <div class="inline">
-      <div class="row">
-        <label for="grad1">Gradient 1</label>
-        <input type="color" id="grad1" value="#f8f1e7">
+      <div class="theme-inline">
+        <div class="theme-row">
+          <label for="{panel_id}_grad1">Gradient 1</label>
+          <input type="color" id="{panel_id}_grad1" value="#f8f1e7">
+        </div>
+        <div class="theme-row">
+          <label for="{panel_id}_grad2">Gradient 2</label>
+          <input type="color" id="{panel_id}_grad2" value="#efe4d3">
+        </div>
       </div>
-      <div class="row">
-        <label for="grad2">Gradient 2</label>
-        <input type="color" id="grad2" value="#efe4d3">
+
+      <div class="theme-btn-row">
+        <button id="{panel_id}_save" type="button">Save</button>
+        <button id="{panel_id}_reset" type="button">Reset</button>
       </div>
-    </div>
-
-    <div class="row">
-      <label for="bgImage">Background image URL</label>
-      <input type="text" id="bgImage" placeholder="https://example.com/bg.jpg">
-    </div>
-
-    <div class="row">
-      <label>
-        <input type="checkbox" id="useImageBg">
-        Use image background
-      </label>
-    </div>
-
-    <div class="btn-row">
-      <button id="saveTheme">Save</button>
-      <button id="resetTheme">Reset</button>
     </div>
   </div>
 </div>
+"""
 
+
+def build_theme_script(button_id: str, panel_id: str, storage_key: str) -> str:
+    return f"""
 <script>
-(function () {
+(function () {{
   const root = document.documentElement;
-  const body = document.body;
+  const button = document.getElementById("{button_id}");
+  const panel = document.getElementById("{panel_id}");
+  if (!root || !button || !panel) return;
 
-  const presetTheme = document.getElementById("presetTheme");
-  const bgColor = document.getElementById("bgColor");
-  const accentColor = document.getElementById("accentColor");
-  const grad1 = document.getElementById("grad1");
-  const grad2 = document.getElementById("grad2");
-  const bgImage = document.getElementById("bgImage");
-  const useImageBg = document.getElementById("useImageBg");
-  const saveTheme = document.getElementById("saveTheme");
-  const resetTheme = document.getElementById("resetTheme");
-  const toggleEditor = document.getElementById("toggleEditor");
-  const themeEditor = document.getElementById("themeEditor");
+  const presetTheme = document.getElementById("{panel_id}_preset");
+  const bgColor = document.getElementById("{panel_id}_bg");
+  const accentColor = document.getElementById("{panel_id}_accent");
+  const grad1 = document.getElementById("{panel_id}_grad1");
+  const grad2 = document.getElementById("{panel_id}_grad2");
+  const saveTheme = document.getElementById("{panel_id}_save");
+  const resetTheme = document.getElementById("{panel_id}_reset");
 
-  if (!root || !body || !presetTheme || !bgColor || !accentColor || !grad1 || !grad2 || !bgImage || !useImageBg || !saveTheme || !resetTheme || !toggleEditor || !themeEditor) {
-    return;
-  }
-
-  const presets = {
-    canvas: {
+  const presets = {{
+    canvas: {{
       "--bg": "#f4ecdf",
       "--bg-grad-1": "#f8f1e7",
       "--bg-grad-2": "#efe4d3",
@@ -185,8 +94,8 @@ THEME_EDITOR_SNIPPET = r"""
       "--muted": "#716250",
       "--accent": "#8b5e3c",
       "--accent-2": "#b6845e"
-    },
-    darkwood: {
+    }},
+    darkwood: {{
       "--bg": "#1b1712",
       "--bg-grad-1": "#241c14",
       "--bg-grad-2": "#34281d",
@@ -196,8 +105,8 @@ THEME_EDITOR_SNIPPET = r"""
       "--muted": "#c1b09a",
       "--accent": "#e1b78a",
       "--accent-2": "#d39f68"
-    },
-    forest: {
+    }},
+    forest: {{
       "--bg": "#e9efe7",
       "--bg-grad-1": "#f3f7f1",
       "--bg-grad-2": "#d9e7d5",
@@ -207,8 +116,8 @@ THEME_EDITOR_SNIPPET = r"""
       "--muted": "#557060",
       "--accent": "#4f7a5c",
       "--accent-2": "#789d83"
-    },
-    slate: {
+    }},
+    slate: {{
       "--bg": "#e7ebf0",
       "--bg-grad-1": "#f3f6fa",
       "--bg-grad-2": "#d7dde6",
@@ -218,138 +127,141 @@ THEME_EDITOR_SNIPPET = r"""
       "--muted": "#5c6d7d",
       "--accent": "#496a8a",
       "--accent-2": "#7292b0"
-    }
-  };
+    }}
+  }};
 
-  function applyVars(vars) {
-    Object.entries(vars).forEach(([key, value]) => {
+  function applyVars(vars) {{
+    Object.entries(vars).forEach(([key, value]) => {{
       root.style.setProperty(key, value);
-    });
-  }
+    }});
+  }}
 
-  function applyBackgroundImage(url, enabled) {
-    if (enabled && url.trim()) {
-      body.style.background =
-        'linear-gradient(rgba(255,255,255,0.35), rgba(255,255,255,0.35)), url("' + url + '") center/cover fixed no-repeat';
-    } else {
-      body.style.background = "";
-    }
-  }
-
-  function toHex(color) {
+  function toHex(color) {{
     if (!color) return null;
     if (color.startsWith("#")) return color;
 
-    const m = color.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
+    const m = color.match(/^rgb\\((\\d+),\\s*(\\d+),\\s*(\\d+)\\)$/);
     if (!m) return null;
 
     return "#" + [m[1], m[2], m[3]]
       .map(x => Number(x).toString(16).padStart(2, "0"))
       .join("");
-  }
+  }}
 
-  function syncInputsFromComputed() {
+  function syncInputsFromComputed() {{
     const styles = getComputedStyle(root);
     bgColor.value = toHex(styles.getPropertyValue("--bg").trim()) || "#f4ecdf";
     grad1.value = toHex(styles.getPropertyValue("--bg-grad-1").trim()) || "#f8f1e7";
     grad2.value = toHex(styles.getPropertyValue("--bg-grad-2").trim()) || "#efe4d3";
     accentColor.value = toHex(styles.getPropertyValue("--accent").trim()) || "#8b5e3c";
-  }
+  }}
 
-  function applyCustomTheme() {
-    applyVars({
+  function applyCustomTheme() {{
+    applyVars({{
       "--bg": bgColor.value,
       "--bg-grad-1": grad1.value,
       "--bg-grad-2": grad2.value,
       "--accent": accentColor.value,
       "--accent-2": accentColor.value
-    });
-    applyBackgroundImage(bgImage.value, useImageBg.checked);
-  }
+    }});
+  }}
 
-  function saveSettings() {
-    const settings = {
+  function saveSettings() {{
+    const settings = {{
       preset: presetTheme.value,
       bg: bgColor.value,
       grad1: grad1.value,
       grad2: grad2.value,
-      accent: accentColor.value,
-      bgImage: bgImage.value,
-      useImageBg: useImageBg.checked,
-      collapsed: themeEditor.classList.contains("collapsed")
-    };
-    localStorage.setItem("asic-flow-theme", JSON.stringify(settings));
-  }
+      accent: accentColor.value
+    }};
+    localStorage.setItem("{storage_key}", JSON.stringify(settings));
+  }}
 
-  function loadSettings() {
-    const raw = localStorage.getItem("asic-flow-theme");
+  function loadSettings() {{
+    const raw = localStorage.getItem("{storage_key}");
     if (!raw) return;
 
-    try {
+    try {{
       const s = JSON.parse(raw);
 
-      if (s.preset && presets[s.preset]) {
+      if (s.preset && presets[s.preset]) {{
         presetTheme.value = s.preset;
         applyVars(presets[s.preset]);
-      }
+      }}
 
       if (s.bg) bgColor.value = s.bg;
       if (s.grad1) grad1.value = s.grad1;
       if (s.grad2) grad2.value = s.grad2;
       if (s.accent) accentColor.value = s.accent;
-      if (s.bgImage) bgImage.value = s.bgImage;
-      useImageBg.checked = !!s.useImageBg;
 
       applyCustomTheme();
-
-      if (s.collapsed) {
-        themeEditor.classList.add("collapsed");
-      }
-    } catch (e) {
+    }} catch (e) {{
       console.warn("Failed to load saved theme settings", e);
-    }
-  }
+    }}
+  }}
 
-  presetTheme.addEventListener("change", () => {
+  function openPanel() {{
+    panel.hidden = false;
+    button.setAttribute("aria-expanded", "true");
+  }}
+
+  function closePanel() {{
+    panel.hidden = true;
+    button.setAttribute("aria-expanded", "false");
+  }}
+
+  function togglePanel() {{
+    if (panel.hidden) {{
+      openPanel();
+    }} else {{
+      closePanel();
+    }}
+  }}
+
+  button.addEventListener("click", function (event) {{
+    event.stopPropagation();
+    togglePanel();
+  }});
+
+  panel.addEventListener("click", function (event) {{
+    event.stopPropagation();
+  }});
+
+  document.addEventListener("click", function () {{
+    closePanel();
+  }});
+
+  document.addEventListener("keydown", function (event) {{
+    if (event.key === "Escape") {{
+      closePanel();
+    }}
+  }});
+
+  presetTheme.addEventListener("change", () => {{
     const preset = presets[presetTheme.value];
     applyVars(preset);
     syncInputsFromComputed();
-    applyBackgroundImage(bgImage.value, useImageBg.checked);
     saveSettings();
-  });
+  }});
 
-  [bgColor, grad1, grad2, accentColor].forEach(el => {
-    el.addEventListener("input", () => {
+  [bgColor, grad1, grad2, accentColor].forEach(el => {{
+    el.addEventListener("input", () => {{
       applyCustomTheme();
       saveSettings();
-    });
-  });
-
-  bgImage.addEventListener("input", () => {
-    applyCustomTheme();
-    saveSettings();
-  });
-
-  useImageBg.addEventListener("change", () => {
-    applyCustomTheme();
-    saveSettings();
-  });
+    }});
+  }});
 
   saveTheme.addEventListener("click", saveSettings);
 
-  resetTheme.addEventListener("click", () => {
-    localStorage.removeItem("asic-flow-theme");
+  resetTheme.addEventListener("click", () => {{
+    localStorage.removeItem("{storage_key}");
     location.reload();
-  });
-
-  toggleEditor.addEventListener("click", () => {
-    themeEditor.classList.toggle("collapsed");
-    saveSettings();
-  });
+  }});
 
   syncInputsFromComputed();
   loadSettings();
-})();
+  closePanel();
+}})();
 </script>
 """
 
@@ -782,6 +694,7 @@ a{color:var(--accent);text-decoration:none}
 a:hover{text-decoration:underline}
 .wrap{max-width:1480px;margin:0 auto;padding:28px 20px 40px}
 .hero{
+  position:relative;
   background:
     linear-gradient(135deg, rgba(255,255,255,0.14), rgba(255,255,255,0.02)),
     var(--panel-strong);
@@ -791,6 +704,15 @@ a:hover{text-decoration:underline}
   box-shadow:var(--shadow);
   backdrop-filter: blur(12px);
   margin-bottom:22px;
+}
+.hero-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:16px;
+}
+.hero-copy{
+  min-width:0;
 }
 .hero h1{margin:0 0 12px;font-size:34px;line-height:1.1;letter-spacing:-0.02em}
 .hero p{margin:0;color:var(--muted);max-width:980px}
@@ -898,13 +820,102 @@ tr:hover td{background:rgba(255,255,255,0.06)}
   font-size:14px;
   margin-top:6px;
 }
+
+.theme-control{
+  position:relative;
+  flex:0 0 auto;
+}
+.theme-launch{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:148px;
+  padding:10px 14px;
+  border-radius:12px;
+  border:1px solid var(--border-strong);
+  background:var(--panel-soft);
+  color:var(--text);
+  font:600 13px/1.2 Inter, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  cursor:pointer;
+  box-shadow:var(--shadow);
+}
+.theme-widget{
+  position:absolute;
+  top:calc(100% + 10px);
+  right:0;
+  width:320px;
+  max-width:min(320px, calc(100vw - 56px));
+  z-index:30;
+}
+.theme-widget-body{
+  padding:16px;
+  border-radius:16px;
+  border:1px solid var(--border-strong);
+  background:var(--panel-strong);
+  backdrop-filter:blur(12px);
+  box-shadow:var(--shadow);
+}
+.theme-widget h3{
+  margin:0 0 12px;
+  font-size:16px;
+}
+.theme-row{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:6px;
+  margin-bottom:12px;
+}
+.theme-row label{
+  font-size:12px;
+  opacity:.85;
+  font-weight:600;
+}
+.theme-row input,
+.theme-row select,
+.theme-row button{
+  width:100%;
+  padding:8px 10px;
+  border-radius:10px;
+  border:1px solid var(--border-strong);
+  background:var(--panel-soft);
+  color:var(--text);
+  font:inherit;
+}
+.theme-inline{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+}
+.theme-btn-row{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+  margin-top:6px;
+}
 @media (max-width:1080px){
   .rules,.best{grid-column:1 / -1}
   .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
   .hero h1{font-size:28px}
 }
+@media (max-width:780px){
+  .hero-head{
+    flex-direction:column;
+    align-items:stretch;
+  }
+  .theme-control{
+    align-self:flex-end;
+  }
+  .theme-widget{
+    left:0;
+    right:auto;
+    width:min(320px, calc(100vw - 56px));
+  }
+}
 @media (max-width:680px){
   .stats{grid-template-columns:1fr}
+  .theme-inline{
+    grid-template-columns:1fr;
+  }
 }
 """
 
@@ -933,10 +944,12 @@ tr:hover td{background:rgba(255,255,255,0.06)}
         title = html.escape(f"{row.get('_variant','')} — {row.get('_run_dir','')}")
         remarks = html.escape(row.get("selection_reason", ""))
         gds_link = f'<a class="btn" href="{html.escape(gds_name)}">Download GDS</a>' if gds_name else '<span class="muted">No GDS copied</span>'
-        local_preview_link = f'<a class="btn secondary" href="viewer.html">Open Local Preview</a>' if (run_dir / "viewer.html").exists() else ""
         metrics_link = f'<a class="btn secondary" href="metrics.csv">Open metrics.csv</a>' if (run_dir / "metrics.csv").exists() else ""
         raw_metrics_link = f'<a class="btn secondary" href="metrics_raw.json">Open metrics_raw.json</a>' if (run_dir / "metrics_raw.json").exists() else ""
-        viewer_link = f'<a class="btn secondary" href="{TT_GDS_VIEWER_URL}" target="_blank" rel="noopener noreferrer">Open GDS Viewer Homepage</a>'
+        viewer_link = f'<a class="btn secondary" href="{TT_GDS_VIEWER_URL}" target="_blank" rel="noopener noreferrer">Open GDS Viewer</a>'
+
+        theme_widget = build_theme_widget("runAppearanceButton", "runThemeWidget")
+        theme_script = build_theme_script("runAppearanceButton", "runThemeWidget", "asic-flow-theme")
 
         run_html = f"""<!doctype html>
 <html lang="en">
@@ -946,11 +959,15 @@ tr:hover td{background:rgba(255,255,255,0.06)}
   <style>{site_css}</style>
 </head>
 <body>
-  {THEME_EDITOR_SNIPPET}
   <div class="wrap">
     <div class="hero">
-      <h1>{title}</h1>
-      <p>Per-run detail page with timing, area, power, signoff, downloadable layout data, local previews, and a manual GDS viewer homepage link.</p>
+      <div class="hero-head">
+        <div class="hero-copy">
+          <h1>{title}</h1>
+          <p>Per-run detail page with timing, area, power, signoff, downloadable layout data, and a manual GDS viewer link.</p>
+        </div>
+        {theme_widget}
+      </div>
     </div>
 
     <div class="grid">
@@ -962,10 +979,9 @@ tr:hover td{background:rgba(255,255,255,0.06)}
       </section>
 
       <section class="card best">
-        <h2>Downloads and tools</h2>
+        <h2>Download &amp; Tools</h2>
         <div class="actions">
           {gds_link}
-          {local_preview_link}
           {metrics_link}
           {raw_metrics_link}
           {viewer_link}
@@ -1021,6 +1037,7 @@ tr:hover td{background:rgba(255,255,255,0.06)}
       </div>
     </section>
   </div>
+  {theme_script}
 </body>
 </html>
 """
@@ -1054,7 +1071,7 @@ tr:hover td{background:rgba(255,255,255,0.06)}
 
         selected_marker = '<span class="tag">Selected</span>' if idx == 0 else ""
         gds_link = f'<a class="btn" href="{gds_page}">GDS</a>' if gds_page else '<span class="muted small">No GDS</span>'
-        tt_viewer_link = f'<a class="btn secondary" href="{TT_GDS_VIEWER_URL}" target="_blank" rel="noopener noreferrer">Homepage</a>'
+        tt_viewer_link = f'<a class="btn secondary" href="{TT_GDS_VIEWER_URL}" target="_blank" rel="noopener noreferrer">Viewer</a>'
         row_class = "selected-row" if idx == 0 else ""
 
         rows_html.append(
@@ -1092,6 +1109,9 @@ tr:hover td{background:rgba(255,255,255,0.06)}
             )
         )
 
+    theme_widget = build_theme_widget("indexAppearanceButton", "indexThemeWidget")
+    theme_script = build_theme_script("indexAppearanceButton", "indexThemeWidget", "asic-flow-theme")
+
     index_html = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -1100,11 +1120,15 @@ tr:hover td{background:rgba(255,255,255,0.06)}
   <style>{site_css}</style>
 </head>
 <body>
-  {THEME_EDITOR_SNIPPET}
   <div class="wrap">
     <section class="hero">
-      <h1>ASIC Flow Run Explorer</h1>
-      <p>Published summary of all collected runs, how the best run was selected, and direct access to per-run pages and downloadable GDS files.</p>
+      <div class="hero-head">
+        <div class="hero-copy">
+          <h1>ASIC Flow Run Explorer</h1>
+          <p>Published summary of all collected runs, how the best run was selected, and direct access to per-run pages and downloadable GDS files.</p>
+        </div>
+        {theme_widget}
+      </div>
     </section>
 
     <div class="grid">
@@ -1123,7 +1147,7 @@ tr:hover td{background:rgba(255,255,255,0.06)}
 
     <section class="card" style="margin-top:18px">
       <h2>Run overview</h2>
-      <p class="section-note">Light canvas styling follows the browser theme automatically. The selected best run is pinned at the top of the table below.</p>
+      <p class="section-note">Top row is the selected best run.</p>
       <div class="stats">
         <div class="stat">
           <div class="label">Total runs</div>
@@ -1164,7 +1188,7 @@ tr:hover td{background:rgba(255,255,255,0.06)}
               <th>Status</th>
               <th>Remarks</th>
               <th>GDS</th>
-              <th>GDS Viewer Homepage</th>
+              <th>GDS Viewer</th>
             </tr>
           </thead>
           <tbody>
@@ -1174,6 +1198,7 @@ tr:hover td{background:rgba(255,255,255,0.06)}
       </div>
     </section>
   </div>
+  {theme_script}
 </body>
 </html>
 """

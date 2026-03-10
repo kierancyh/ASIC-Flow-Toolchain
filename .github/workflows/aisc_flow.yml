@@ -26,10 +26,25 @@ on:
         required: false
         default: "4"
         type: string
+      refine1_step_ns:
+        description: "Refine stage 1 step in ns"
+        required: false
+        default: "1.0"
+        type: string
+      refine2_step_ns:
+        description: "Refine stage 2 step in ns"
+        required: false
+        default: "0.5"
+        type: string
+      refine3_step_ns:
+        description: "Refine stage 3 step in ns"
+        required: false
+        default: "0.125"
+        type: string
       tolerance_ns:
         description: "Final stop tolerance in ns"
         required: false
-        default: "1"
+        default: "0.125"
         type: string
       synth_strategy:
         description: "Optional synthesis strategy override (leave blank to use variant/OpenLane defaults)"
@@ -104,6 +119,7 @@ jobs:
       coarse_steps: ${{ steps.sweep.outputs.coarse_steps }}
       refine1_step_ns: ${{ steps.sweep.outputs.refine1_step_ns }}
       refine2_step_ns: ${{ steps.sweep.outputs.refine2_step_ns }}
+      refine3_step_ns: ${{ steps.sweep.outputs.refine3_step_ns }}
       tolerance_ns: ${{ steps.sweep.outputs.tolerance_ns }}
       openlane_image: ${{ steps.tools.outputs.openlane_image }}
       open_pdks_rev: ${{ steps.tools.outputs.open_pdks_rev }}
@@ -227,7 +243,7 @@ jobs:
           elif variant_override:
               label = f'{variant_override} (variant.yaml ll_policy.synth_strategy)'
           else:
-              label = 'Default'
+              label = 'Default (not overridden)'
 
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
               print(f'summary_synth_strategy={label}', file=f)
@@ -239,6 +255,9 @@ jobs:
           INPUT_MIN_CLOCK_NS: ${{ github.event.inputs.min_clock_ns }}
           INPUT_INITIAL_STEP_NS: ${{ github.event.inputs.initial_step_ns }}
           INPUT_COARSE_STEPS: ${{ github.event.inputs.coarse_steps }}
+          INPUT_REFINE1_STEP_NS: ${{ github.event.inputs.refine1_step_ns }}
+          INPUT_REFINE2_STEP_NS: ${{ github.event.inputs.refine2_step_ns }}
+          INPUT_REFINE3_STEP_NS: ${{ github.event.inputs.refine3_step_ns }}
           INPUT_TOLERANCE_NS: ${{ github.event.inputs.tolerance_ns }}
         run: |
           python - <<'PY'
@@ -247,17 +266,23 @@ jobs:
           min_clock = max(0.0, float(os.environ.get("INPUT_MIN_CLOCK_NS", "") or "0"))
           coarse_step = float(os.environ.get("INPUT_INITIAL_STEP_NS", "") or "20")
           coarse_steps = int(os.environ.get("INPUT_COARSE_STEPS", "") or "4")
-          tolerance = float(os.environ.get("INPUT_TOLERANCE_NS", "") or "1")
+          refine1 = float(os.environ.get("INPUT_REFINE1_STEP_NS", "") or "1.0")
+          refine2 = float(os.environ.get("INPUT_REFINE2_STEP_NS", "") or "0.5")
+          refine3 = float(os.environ.get("INPUT_REFINE3_STEP_NS", "") or "0.125")
+          tolerance = float(os.environ.get("INPUT_TOLERANCE_NS", "") or "0.125")
 
           if coarse_step <= 0:
               raise SystemExit("initial_step_ns must be > 0")
           if coarse_steps < 0:
               raise SystemExit("coarse_steps must be >= 0")
+          if refine1 <= 0 or refine2 <= 0 or refine3 <= 0:
+              raise SystemExit("refine step values must be > 0")
+          if not (refine1 >= refine2 >= refine3):
+              raise SystemExit("refine stages must satisfy refine1 >= refine2 >= refine3")
           if tolerance <= 0:
               raise SystemExit("tolerance_ns must be > 0")
-
-          refine1 = max(tolerance, coarse_step / 4.0)
-          refine2 = tolerance
+          if tolerance > refine3:
+              raise SystemExit("tolerance_ns should be <= refine3_step_ns for the final stage")
 
           def fmt(v: float) -> str:
               if float(v).is_integer():
@@ -270,6 +295,7 @@ jobs:
               print(f"coarse_steps={coarse_steps}", file=f)
               print(f"refine1_step_ns={fmt(refine1)}", file=f)
               print(f"refine2_step_ns={fmt(refine2)}", file=f)
+              print(f"refine3_step_ns={fmt(refine3)}", file=f)
               print(f"tolerance_ns={fmt(tolerance)}", file=f)
           PY
 
@@ -322,6 +348,9 @@ jobs:
             echo "- Baseline clock_ns: \`${{ steps.start.outputs.start_clock_ns }}\`"
             echo "- Coarse step: \`${{ steps.sweep.outputs.coarse_step_ns }} ns\`"
             echo "- Initial Coarse Sweep: \`${{ steps.coarse.outputs.coarse_matrix_json }}\`"
+            echo "- Refine stage 1: \`${{ steps.sweep.outputs.refine1_step_ns }} ns\`"
+            echo "- Refine stage 2: \`${{ steps.sweep.outputs.refine2_step_ns }} ns\`"
+            echo "- Refine stage 3: \`${{ steps.sweep.outputs.refine3_step_ns }} ns\`"
             echo "- Tolerance: \`${{ steps.sweep.outputs.tolerance_ns }} ns\`"
             echo "- Minimum Clock Floor: \`${{ steps.sweep.outputs.min_clock_ns }} ns\`"
             echo "- Synthesis strategy: \`${{ steps.summary_synth.outputs.summary_synth_strategy }}\`"
@@ -780,6 +809,169 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
 
+  select-refine-3:
+    needs:
+      - plan
+      - coarse-sweep
+      - refine-sweep-1
+      - refine-sweep-2
+    if: ${{ always() && needs.refine-sweep-2.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    outputs:
+      matrix_json: ${{ steps.select.outputs.matrix_json }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download accumulated artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: downloaded_artifacts
+
+      - name: Select refine-3 matrix
+        id: select
+        run: |
+          python tools/scripts/select_refine_matrix.py \
+            --artifacts-root downloaded_artifacts \
+            --expand-step-ns "${{ needs.plan.outputs.refine2_step_ns }}" \
+            --refine-step-ns "${{ needs.plan.outputs.refine3_step_ns }}" \
+            --min-clock-ns "${{ needs.plan.outputs.min_clock_ns }}" \
+            --tolerance-ns "${{ needs.plan.outputs.tolerance_ns }}" \
+            --batch-size 8 \
+            --github-output "$GITHUB_OUTPUT"
+
+  refine-sweep-3:
+    name: Refine Sweep 3 (${{ matrix.clock_ns }} ns)
+    needs:
+      - plan
+      - select-refine-3
+    if: ${{ needs.select-refine-3.outputs.matrix_json != '[]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        clock_ns: ${{ fromJson(needs.select-refine-3.outputs.matrix_json) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install volare pyyaml
+
+      - name: Restore PDK cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.volare
+          key: ${{ runner.os }}-sky130-volare-${{ needs.plan.outputs.open_pdks_rev }}
+          restore-keys: |
+            ${{ runner.os }}-sky130-volare-
+
+      - name: Install Sky130 PDK with Volare
+        env:
+          PDK_ROOT: ${{ github.workspace }}/.volare
+          OPEN_PDKS_REV: ${{ needs.plan.outputs.open_pdks_rev }}
+        run: |
+          mkdir -p "${PDK_ROOT}"
+          volare enable --pdk sky130 "${OPEN_PDKS_REV}"
+
+      - name: Pull OpenLane image
+        env:
+          OPENLANE_IMAGE: ${{ needs.plan.outputs.openlane_image }}
+        run: |
+          docker pull "${OPENLANE_IMAGE}"
+
+      - name: Run refine sweep point 3
+        env:
+          VARIANT: ${{ needs.plan.outputs.resolved_variant }}
+          OPENLANE_IMAGE: ${{ needs.plan.outputs.openlane_image }}
+          SYNTH_STRATEGY: ${{ github.event.inputs.synth_strategy }}
+          RUN_ANTENNA_REPAIR: ${{ github.event.inputs.run_antenna_repair }}
+          RUN_HEURISTIC_DIODE_INSERTION: ${{ github.event.inputs.run_heuristic_diode_insertion }}
+          RUN_POST_GRT_DESIGN_REPAIR: ${{ github.event.inputs.run_post_grt_design_repair }}
+          RUN_POST_GRT_RESIZER_TIMING: ${{ github.event.inputs.run_post_grt_resizer_timing }}
+          PDK_ROOT: ${{ github.workspace }}/.volare
+          CLOCK_NS: ${{ matrix.clock_ns }}
+        run: |
+          python tools/scripts/autoflow.py \
+            --variant "${VARIANT}" \
+            --pdk-root "${PDK_ROOT}" \
+            --openlane-image "${OPENLANE_IMAGE}" \
+            --start-clock-ns "${CLOCK_NS}" \
+            --min-clock-ns "${CLOCK_NS}" \
+            --max-clock-ns "${CLOCK_NS}" \
+            --initial-step-ns "1" \
+            --tolerance-ns "0.000001" \
+            --max-iters "1" \
+            --synth-strategy "${SYNTH_STRATEGY}" \
+            --run-antenna-repair "${RUN_ANTENNA_REPAIR:-true}" \
+            --run-heuristic-diode-insertion "${RUN_HEURISTIC_DIODE_INSERTION:-true}" \
+            --run-post-grt-design-repair "${RUN_POST_GRT_DESIGN_REPAIR:-true}" \
+            --run-post-grt-resizer-timing "${RUN_POST_GRT_RESIZER_TIMING:-false}" \
+            --out-root "ci_out/${VARIANT}"
+
+      - name: Enrich refine-3 artifact bundle
+        if: always()
+        shell: bash
+        env:
+          VARIANT: ${{ needs.plan.outputs.resolved_variant }}
+        run: |
+          set -euo pipefail
+          BASE_DIR="ci_out/${VARIANT}"
+          ATTEMPT_DIR="$(find "${BASE_DIR}" -maxdepth 1 -mindepth 1 -type d -name 'clk_*ns_*' | head -n 1 || true)"
+
+          if [ -z "${ATTEMPT_DIR}" ]; then
+            echo "No attempt directory found under ${BASE_DIR}"
+            exit 0
+          fi
+
+          RUN_DIR=""
+          if [ -f "${ATTEMPT_DIR}/run_dir_used.txt" ]; then
+            RUN_DIR="$(head -n 1 "${ATTEMPT_DIR}/run_dir_used.txt" | tr -d '\r' || true)"
+          fi
+
+          if [ -n "${RUN_DIR}" ] && [ -d "${RUN_DIR}" ]; then
+            mkdir -p "${ATTEMPT_DIR}/openlane_run"
+            cp -rv "${RUN_DIR}/." "${ATTEMPT_DIR}/openlane_run/" || true
+
+            if [ -f "${RUN_DIR}/final/metrics.json" ] && [ ! -f "${ATTEMPT_DIR}/metrics_raw.json" ]; then
+              cp -v "${RUN_DIR}/final/metrics.json" "${ATTEMPT_DIR}/metrics_raw.json" || true
+            fi
+
+            if [ -d "${RUN_DIR}/final/gds" ]; then
+              mkdir -p "${ATTEMPT_DIR}/final/gds"
+              cp -rv "${RUN_DIR}/final/gds/." "${ATTEMPT_DIR}/final/gds/" || true
+            fi
+
+            python tools/scripts/render_gds.py --run-root "${RUN_DIR}" --out "${ATTEMPT_DIR}/renders" || true
+          fi
+
+          python tools/scripts/build_layout_viewer.py --out-dir "${ATTEMPT_DIR}" || true
+
+          if [ -f "${ATTEMPT_DIR}/viewer.html" ] && [ ! -f "${ATTEMPT_DIR}/index.html" ]; then
+            cp -v "${ATTEMPT_DIR}/viewer.html" "${ATTEMPT_DIR}/index.html"
+          fi
+
+      - name: Upload refine-3 artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: refine3-${{ needs.plan.outputs.resolved_variant }}-${{ matrix.clock_ns }}ns
+          path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
+          if-no-files-found: error
+          include-hidden-files: true
+
   compare-runs:
     name: Compare Runs
     needs:
@@ -787,6 +979,7 @@ jobs:
       - coarse-sweep
       - refine-sweep-1
       - refine-sweep-2
+      - refine-sweep-3
     if: ${{ always() && needs.coarse-sweep.result != 'skipped' }}
     runs-on: ubuntu-latest
 
