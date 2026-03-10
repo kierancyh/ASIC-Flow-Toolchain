@@ -505,10 +505,10 @@ def write_summary_csv(path: Path, rows: List[Dict[str, str]]) -> None:
         "_gds_name",
     ]
     with path.open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames)
-        w.writeheader()
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
         for row in rows:
-            w.writerow({k: row.get(k, "") for k in fieldnames})
+            writer.writerow({k: row.get(k, "") for k in fieldnames})
 
 
 def md_escape(text: Any) -> str:
@@ -528,16 +528,16 @@ def write_summary_md(path: Path, rows: List[Dict[str, str]]) -> None:
     lines.append("")
 
     if rows:
-      best = sorted(rows, key=best_sort_key)[0]
-      lines.append("### Chosen best run")
-      lines.append("")
-      lines.append(f"- Variant: `{md_escape(best.get('_variant'))}`")
-      lines.append(f"- Run: `{md_escape(best.get('_run_dir'))}`")
-      lines.append(f"- Status: `{md_escape(best.get('status'))}`")
-      lines.append("")
+        best = sorted(rows, key=best_sort_key)[0]
+        lines.append("### Chosen best run")
+        lines.append("")
+        lines.append(f"- Variant: `{md_escape(best.get('_variant'))}`")
+        lines.append(f"- Run: `{md_escape(best.get('_run_dir'))}`")
+        lines.append(f"- Status: `{md_escape(best.get('status'))}`")
+        lines.append("")
     else:
-      lines.append("No runs collected.")
-      lines.append("")
+        lines.append("No runs collected.")
+        lines.append("")
 
     lines.append("## All runs")
     lines.append("")
@@ -640,7 +640,7 @@ def build_site(site_root: Path, rows: List[Dict[str, str]]) -> None:
   --border: rgba(116, 92, 62, 0.16);
   --border-strong: rgba(116, 92, 62, 0.22);
   --text: #2f2418;
-  --muted: #716250;
+  --muted": #716250;
   --accent: #8b5e3c;
   --accent-2: #b6845e;
   --shadow: 0 18px 45px rgba(110, 84, 53, 0.12);
@@ -1105,43 +1105,34 @@ tr:hover td{background:rgba(255,255,255,0.06)}
             gds_page = f'runs/{html.escape(row["_site_slug"])}/{html.escape(row["_site_gds"])}'
 
         selected_marker = '<span class="tag">Selected</span>' if idx == 0 else ""
-        gds_link = f'<a class="btn" href="{gds_page}">GDS</a>' if gds_page else '<span class="muted small">No GDS</span>'
+        gds_link_html = (
+            f'<a class="btn" href="{gds_page}">GDS</a>'
+            if gds_page
+            else '<span class="muted small">No GDS</span>'
+        )
         tt_viewer_link = f'<a class="btn secondary" href="{TT_GDS_VIEWER_URL}" target="_blank" rel="noopener noreferrer">Viewer</a>'
         row_class = "selected-row" if idx == 0 else ""
 
         rows_html.append(
-            "<tr class=\\"%s\\">"
-            "<td>%s</td>"
-            "<td><a href=\\"%s\\"><strong>%s / %s</strong></a><div class=\\"muted small mono\\">%s</div></td>"
-            "<td>%s</td>"
-            "<td>%s</td>"
-            "<td>%s</td>"
-            "<td>%s</td>"
-            "<td>%s</td>"
-            "<td>%s</td>"
-            "<td>%s</td>"
-            "<td>%s</td>"
-            "<td>%s</td>"
-            "<td>%s</td>"
-            "</tr>"
-            % (
-                row_class,
-                selected_marker,
-                run_page,
-                html.escape(str(row.get("_variant", ""))),
-                html.escape(str(row.get("_run_dir", ""))),
-                html.escape(str(row.get("_artifact", ""))),
-                html.escape(str(row.get("clock_ns", ""))),
-                html.escape(str(row.get("setup_wns_ns", ""))),
-                html.escape(str(row.get("setup_tns_ns", ""))),
-                html.escape(str(row.get("drc_errors", ""))),
-                html.escape(str(row.get("lvs_errors", ""))),
-                html.escape(str(row.get("antenna_violations", ""))),
-                badge_html(row.get("status", "")),
-                html.escape(str(row.get("selection_reason", ""))),
-                gds_link,
-                tt_viewer_link,
-            )
+            f"""
+            <tr class="{row_class}">
+              <td>{selected_marker}</td>
+              <td>
+                <a href="{run_page}"><strong>{html.escape(str(row.get("_variant", "")))} / {html.escape(str(row.get("_run_dir", "")))}</strong></a>
+                <div class="muted small mono">{html.escape(str(row.get("_artifact", "")))}</div>
+              </td>
+              <td>{html.escape(str(row.get("clock_ns", "")))}</td>
+              <td>{html.escape(str(row.get("setup_wns_ns", "")))}</td>
+              <td>{html.escape(str(row.get("setup_tns_ns", "")))}</td>
+              <td>{html.escape(str(row.get("drc_errors", "")))}</td>
+              <td>{html.escape(str(row.get("lvs_errors", "")))}</td>
+              <td>{html.escape(str(row.get("antenna_violations", "")))}</td>
+              <td>{badge_html(row.get("status", ""))}</td>
+              <td>{html.escape(str(row.get("selection_reason", "")))}</td>
+              <td>{gds_link_html}</td>
+              <td>{tt_viewer_link}</td>
+            </tr>
+            """
         )
 
     theme_widget = build_theme_widget("indexAppearanceButton", "indexThemeWidget")
@@ -1227,7 +1218,7 @@ tr:hover td{background:rgba(255,255,255,0.06)}
             </tr>
           </thead>
           <tbody>
-            {''.join(rows_html)}
+            {"".join(rows_html)}
           </tbody>
         </table>
       </div>
