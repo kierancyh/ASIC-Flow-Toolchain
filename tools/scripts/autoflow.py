@@ -358,14 +358,6 @@ def choose_next_clock(
     max_clock_ns: float,
     tolerance_ns: float,
 ) -> Tuple[Optional[float], float]:
-    """
-    Lower clock period is harder.
-
-    Strategy:
-    - no passes yet: move to an easier clock by increasing the period
-    - passes but no failing lower bound yet: push harder by decreasing the period
-    - once bracketed: binary search between smallest pass and largest fail below it
-    """
     next_step = max(step, tolerance_ns)
     pass_bound, fail_bound = compute_bounds(pass_clocks, fail_clocks)
 
@@ -651,12 +643,6 @@ def main() -> None:
     }
     (out_root / "_autoflow_status.json").write_text(json.dumps(status_payload, indent=2), encoding="utf-8")
     (out_root / ".autoflow_completed").write_text("completed\n", encoding="utf-8")
-
-    append_summary(summary_path, "")
-    append_summary(summary_path, f"**Attempts recorded:** `{len(history)}`")
-    append_summary(summary_path, f"**Passing attempts:** `{len(passing)}`")
-    append_summary(summary_path, f"**Best selected clock:** `{best.get('clock_ns', '')}` ns")
-    append_summary(summary_path, f"**Best status:** `{best.get('status', '')}`")
 
 
 if __name__ == "__main__":

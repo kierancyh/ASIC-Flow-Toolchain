@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
+TT_GDS_VIEWER_URL = "https://gds-viewer.tinytapeout.com/"
+
+
 def to_float(v: Any) -> Optional[float]:
     try:
         if v in (None, "", "None"):
@@ -310,12 +313,139 @@ def package_best_bundle(best_bundle_dir: Path, best: Dict[str, Any]) -> None:
     (best_bundle_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
+def status_class(status: str) -> str:
+    s = (status or "").upper()
+    if s == "PASS":
+        return "pass"
+    if s == "TIMING_FAIL":
+        return "timing"
+    if s == "SIGNOFF_FAIL":
+        return "signoff"
+    if s == "SIGNOFF_AND_TIMING_FAIL":
+        return "mixed"
+    return "flow"
+
+
+def badge_html(status: str) -> str:
+    label = html.escape(status or "")
+    cls = status_class(status)
+    return f'<span class="badge {cls}">{label}</span>'
+
+
 def build_site(site_root: Path, rows: List[Dict[str, str]]) -> None:
     site_root.mkdir(parents=True, exist_ok=True)
     runs_root = site_root / "runs"
     runs_root.mkdir(parents=True, exist_ok=True)
 
     sorted_rows = sorted(rows, key=best_sort_key)
+
+    site_css = """
+:root{
+  --bg:#0b1020;
+  --panel:#131a2e;
+  --panel-2:#18223b;
+  --border:#2a3558;
+  --text:#eaf0ff;
+  --muted:#a9b6d3;
+  --accent:#7aa2ff;
+  --accent-2:#4de2c5;
+  --pass:#1f9d63;
+  --timing:#d29b19;
+  --signoff:#d15b5b;
+  --mixed:#c26ce5;
+  --flow:#6b7280;
+  --shadow:0 18px 45px rgba(0,0,0,.28);
+  --radius:18px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:linear-gradient(180deg,#09101f 0%,#0b1020 100%);color:var(--text);font:15px/1.55 Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.wrap{max-width:1440px;margin:0 auto;padding:28px 20px 40px}
+.hero{
+  background:linear-gradient(135deg,rgba(122,162,255,.18),rgba(77,226,197,.10));
+  border:1px solid rgba(122,162,255,.2);
+  border-radius:28px;
+  padding:28px;
+  box-shadow:var(--shadow);
+  margin-bottom:22px;
+}
+.hero h1{margin:0 0 10px;font-size:34px;line-height:1.1}
+.hero p{margin:0;color:var(--muted);max-width:920px}
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:18px}
+.card{
+  background:rgba(19,26,46,.92);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:20px;
+  box-shadow:var(--shadow);
+}
+.card h2,.card h3{margin:0 0 12px}
+.card p{margin:0 0 10px}
+.rules{grid-column:span 5}
+.best{grid-column:span 7}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px}
+.stat{
+  background:rgba(255,255,255,.03);
+  border:1px solid rgba(255,255,255,.06);
+  border-radius:14px;
+  padding:14px
+}
+.stat .label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em}
+.stat .value{font-size:26px;font-weight:700;margin-top:4px}
+.list-clean{margin:0;padding-left:20px}
+.list-clean li{margin:8px 0}
+.table-card{margin-top:18px;padding:0;overflow:hidden}
+.table-head{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:18px 20px;border-bottom:1px solid var(--border)
+}
+.table-head h2{margin:0;font-size:20px}
+.table-wrap{overflow:auto}
+table{width:100%;border-collapse:collapse;min-width:1320px}
+th,td{padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.06);vertical-align:top}
+th{
+  position:sticky;top:0;background:#17213a;color:#dce6ff;
+  text-align:left;font-size:13px;letter-spacing:.03em
+}
+tr:hover td{background:rgba(255,255,255,.025)}
+.selected-row td{background:rgba(122,162,255,.08)}
+.badge{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:92px;padding:6px 10px;border-radius:999px;font-size:12px;
+  font-weight:700;letter-spacing:.02em;border:1px solid transparent
+}
+.badge.pass{background:rgba(31,157,99,.18);color:#88f0bc;border-color:rgba(31,157,99,.35)}
+.badge.timing{background:rgba(210,155,25,.18);color:#ffd66b;border-color:rgba(210,155,25,.35)}
+.badge.signoff{background:rgba(209,91,91,.18);color:#ffadad;border-color:rgba(209,91,91,.35)}
+.badge.mixed{background:rgba(194,108,229,.18);color:#ebb0ff;border-color:rgba(194,108,229,.35)}
+.badge.flow{background:rgba(107,114,128,.18);color:#c8cfdb;border-color:rgba(107,114,128,.35)}
+.tag{
+  display:inline-block;padding:4px 10px;border-radius:999px;
+  background:rgba(77,226,197,.14);border:1px solid rgba(77,226,197,.28);
+  color:#8ff2de;font-size:12px;font-weight:700
+}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;
+  padding:8px 12px;border-radius:10px;border:1px solid rgba(122,162,255,.28);
+  background:rgba(122,162,255,.10);color:#dfe7ff;font-weight:600;font-size:13px
+}
+.btn.secondary{
+  border-color:rgba(255,255,255,.10);background:rgba(255,255,255,.04);color:#d5def5
+}
+.muted{color:var(--muted)}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.small{font-size:13px}
+@media (max-width:1000px){
+  .rules,.best{grid-column:1 / -1}
+  .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .hero h1{font-size:28px}
+}
+@media (max-width:640px){
+  .stats{grid-template-columns:1fr}
+}
+"""
 
     for row in sorted_rows:
         slug = f"{row.get('_variant', 'variant').replace('/', '_')}__{row.get('_run_dir', 'run')}"
@@ -341,102 +471,155 @@ def build_site(site_root: Path, rows: List[Dict[str, str]]) -> None:
 
         title = html.escape(f"{row.get('_variant','')} — {row.get('_run_dir','')}")
         reason = html.escape(row.get("selection_reason", ""))
-        gds_link = f'<a href="{html.escape(gds_name)}">Download {html.escape(gds_name)}</a>' if gds_name else "No GDS copied"
-        viewer_link = '<a href="viewer.html">Open viewer</a>' if (run_dir / "viewer.html").exists() else "Viewer not copied"
+        gds_link = f'<a class="btn" href="{html.escape(gds_name)}">Download GDS</a>' if gds_name else '<span class="muted">No GDS copied</span>'
+        viewer_link = f'<a class="btn secondary" href="{TT_GDS_VIEWER_URL}" target="_blank" rel="noopener noreferrer">Open GDS Viewer (TinyTapeout)</a>'
 
         run_html = f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <title>{title}</title>
+  <style>{site_css}</style>
 </head>
 <body>
-  <h1>{title}</h1>
-  <p><a href="../../index.html">Back to ASIC Flow Run Explorer</a></p>
-  <p><strong>Status:</strong> {html.escape(row.get('status', ''))}</p>
-  <p><strong>Selection rationale:</strong> {reason}</p>
-  <ul>
-    <li>{gds_link}</li>
-    <li>{viewer_link}</li>
-  </ul>
+  <div class="wrap">
+    <div class="hero">
+      <h1>{title}</h1>
+      <p>Per-run detail page with timing, area, power, signoff, downloadable layout data, and viewer access.</p>
+    </div>
 
-  <h2>Timing</h2>
-  <table border="1" cellspacing="0" cellpadding="4">
-    <tr><th>Metric</th><th>Value</th></tr>
-    <tr><td>clock_ns</td><td>{html.escape(str(row.get('clock_ns', '')))}</td></tr>
-    <tr><td>clock_ns_reported</td><td>{html.escape(str(row.get('clock_ns_reported', '')))}</td></tr>
-    <tr><td>setup_wns_ns</td><td>{html.escape(str(row.get('setup_wns_ns', '')))}</td></tr>
-    <tr><td>setup_tns_ns</td><td>{html.escape(str(row.get('setup_tns_ns', '')))}</td></tr>
-    <tr><td>hold_wns_ns</td><td>{html.escape(str(row.get('hold_wns_ns', '')))}</td></tr>
-    <tr><td>hold_tns_ns</td><td>{html.escape(str(row.get('hold_tns_ns', '')))}</td></tr>
-    <tr><td>status</td><td>{html.escape(str(row.get('status', '')))}</td></tr>
-  </table>
+    <div class="grid">
+      <section class="card rules">
+        <h2>Run status</h2>
+        <p>{badge_html(row.get('status',''))}</p>
+        <p><strong>Selection rationale:</strong> {reason}</p>
+        <p><a class="btn secondary" href="../../index.html">Back to ASIC Flow Run Explorer</a></p>
+      </section>
 
-  <h2>Area and power</h2>
-  <table border="1" cellspacing="0" cellpadding="4">
-    <tr><th>Metric</th><th>Value</th></tr>
-    <tr><td>core_area_um2</td><td>{html.escape(str(row.get('core_area_um2', '')))}</td></tr>
-    <tr><td>die_area_um2</td><td>{html.escape(str(row.get('die_area_um2', '')))}</td></tr>
-    <tr><td>instance_count</td><td>{html.escape(str(row.get('instance_count', '')))}</td></tr>
-    <tr><td>utilization_pct</td><td>{html.escape(str(row.get('utilization_pct', '')))}</td></tr>
-    <tr><td>wire_length_um</td><td>{html.escape(str(row.get('wire_length_um', '')))}</td></tr>
-    <tr><td>vias_count</td><td>{html.escape(str(row.get('vias_count', '')))}</td></tr>
-    <tr><td>power_total_W</td><td>{html.escape(str(row.get('power_total_W', '')))}</td></tr>
-    <tr><td>power_internal_W</td><td>{html.escape(str(row.get('power_internal_W', '')))}</td></tr>
-    <tr><td>power_switching_W</td><td>{html.escape(str(row.get('power_switching_W', '')))}</td></tr>
-    <tr><td>power_leakage_W</td><td>{html.escape(str(row.get('power_leakage_W', '')))}</td></tr>
-  </table>
+      <section class="card best">
+        <h2>Downloads and tools</h2>
+        <div class="actions">
+          {gds_link}
+          {viewer_link}
+        </div>
+      </section>
+    </div>
 
-  <h2>Signoff and physical</h2>
-  <table border="1" cellspacing="0" cellpadding="4">
-    <tr><th>Metric</th><th>Value</th></tr>
-    <tr><td>drc_errors</td><td>{html.escape(str(row.get('drc_errors', '')))}</td></tr>
-    <tr><td>lvs_errors</td><td>{html.escape(str(row.get('lvs_errors', '')))}</td></tr>
-    <tr><td>antenna_violations</td><td>{html.escape(str(row.get('antenna_violations', '')))}</td></tr>
-    <tr><td>ir_drop_worst_V</td><td>{html.escape(str(row.get('ir_drop_worst_V', '')))}</td></tr>
-  </table>
+    <section class="card table-card">
+      <div class="table-head"><h2>Timing</h2></div>
+      <div class="table-wrap">
+        <table>
+          <tr><th>Metric</th><th>Value</th></tr>
+          <tr><td>clock_ns</td><td>{html.escape(str(row.get('clock_ns', '')))}</td></tr>
+          <tr><td>clock_ns_reported</td><td>{html.escape(str(row.get('clock_ns_reported', '')))}</td></tr>
+          <tr><td>setup_wns_ns</td><td>{html.escape(str(row.get('setup_wns_ns', '')))}</td></tr>
+          <tr><td>setup_tns_ns</td><td>{html.escape(str(row.get('setup_tns_ns', '')))}</td></tr>
+          <tr><td>hold_wns_ns</td><td>{html.escape(str(row.get('hold_wns_ns', '')))}</td></tr>
+          <tr><td>hold_tns_ns</td><td>{html.escape(str(row.get('hold_tns_ns', '')))}</td></tr>
+          <tr><td>status</td><td>{html.escape(str(row.get('status', '')))}</td></tr>
+        </table>
+      </div>
+    </section>
+
+    <section class="card table-card">
+      <div class="table-head"><h2>Area and power</h2></div>
+      <div class="table-wrap">
+        <table>
+          <tr><th>Metric</th><th>Value</th></tr>
+          <tr><td>core_area_um2</td><td>{html.escape(str(row.get('core_area_um2', '')))}</td></tr>
+          <tr><td>die_area_um2</td><td>{html.escape(str(row.get('die_area_um2', '')))}</td></tr>
+          <tr><td>instance_count</td><td>{html.escape(str(row.get('instance_count', '')))}</td></tr>
+          <tr><td>utilization_pct</td><td>{html.escape(str(row.get('utilization_pct', '')))}</td></tr>
+          <tr><td>wire_length_um</td><td>{html.escape(str(row.get('wire_length_um', '')))}</td></tr>
+          <tr><td>vias_count</td><td>{html.escape(str(row.get('vias_count', '')))}</td></tr>
+          <tr><td>power_total_W</td><td>{html.escape(str(row.get('power_total_W', '')))}</td></tr>
+          <tr><td>power_internal_W</td><td>{html.escape(str(row.get('power_internal_W', '')))}</td></tr>
+          <tr><td>power_switching_W</td><td>{html.escape(str(row.get('power_switching_W', '')))}</td></tr>
+          <tr><td>power_leakage_W</td><td>{html.escape(str(row.get('power_leakage_W', '')))}</td></tr>
+        </table>
+      </div>
+    </section>
+
+    <section class="card table-card">
+      <div class="table-head"><h2>Signoff and physical</h2></div>
+      <div class="table-wrap">
+        <table>
+          <tr><th>Metric</th><th>Value</th></tr>
+          <tr><td>drc_errors</td><td>{html.escape(str(row.get('drc_errors', '')))}</td></tr>
+          <tr><td>lvs_errors</td><td>{html.escape(str(row.get('lvs_errors', '')))}</td></tr>
+          <tr><td>antenna_violations</td><td>{html.escape(str(row.get('antenna_violations', '')))}</td></tr>
+          <tr><td>ir_drop_worst_V</td><td>{html.escape(str(row.get('ir_drop_worst_V', '')))}</td></tr>
+        </table>
+      </div>
+    </section>
+  </div>
 </body>
 </html>
 """
         (run_dir / "index.html").write_text(run_html, encoding="utf-8")
 
-    rows_html: List[str] = []
-    for idx, row in enumerate(sorted_rows):
-        run_page = f"runs/{html.escape(row['_site_slug'])}/index.html"
-        viewer_page = f"runs/{html.escape(row['_site_slug'])}/viewer.html"
-        gds_page = ""
-        if row.get("_site_gds"):
-            gds_page = f'runs/{html.escape(row["_site_slug"])}/{html.escape(row["_site_gds"])}'
-        selected = "SELECTED" if idx == 0 else ""
-
-        viewer_link = f'<a href="{viewer_page}">Open viewer</a>'
-        gds_link = f'<a href="{gds_page}">{html.escape(str(row.get("_site_gds","")))}</a>' if gds_page else ""
-
-        rows_html.append(
-            "<tr>"
-            f"<td>{html.escape(selected)}</td>"
-            f"<td><a href=\"{run_page}\">{html.escape(str(row.get('_variant','')))} / {html.escape(str(row.get('_run_dir','')))}</a></td>"
-            f"<td>{html.escape(str(row.get('clock_ns','')))}</td>"
-            f"<td>{html.escape(str(row.get('setup_wns_ns','')))}</td>"
-            f"<td>{html.escape(str(row.get('setup_tns_ns','')))}</td>"
-            f"<td>{html.escape(str(row.get('drc_errors','')))}</td>"
-            f"<td>{html.escape(str(row.get('lvs_errors','')))}</td>"
-            f"<td>{html.escape(str(row.get('antenna_violations','')))}</td>"
-            f"<td>{html.escape(str(row.get('status','')))}</td>"
-            f"<td>{html.escape(str(row.get('selection_reason','')))}</td>"
-            f"<td>{gds_link}</td>"
-            f"<td>{viewer_link}</td>"
-            "</tr>"
-        )
-
+    total_runs = len(sorted_rows)
+    pass_count = sum(1 for row in sorted_rows if row.get("status") == "PASS")
+    fail_count = total_runs - pass_count
     best_text = ""
     if sorted_rows:
         best = sorted_rows[0]
-        best_text = (
-            f"<p><strong>Chosen best run:</strong> "
-            f"{html.escape(str(best.get('_variant','')))} / {html.escape(str(best.get('_run_dir','')))} "
-            f"({html.escape(str(best.get('clock_ns','')))} ns)</p>"
-            f"<p><strong>Why selected:</strong> {html.escape(str(best.get('selection_reason','')))}</p>"
+        best_text = f"""
+        <section class="card best">
+          <h2>Chosen best run</h2>
+          <p><span class="tag">Selected</span></p>
+          <p><strong>Run:</strong> {html.escape(str(best.get('_variant','')))} / {html.escape(str(best.get('_run_dir','')))}</p>
+          <p><strong>Clock:</strong> {html.escape(str(best.get('clock_ns','')))} ns</p>
+          <p><strong>Status:</strong> {badge_html(best.get('status',''))}</p>
+          <p><strong>Why selected:</strong> {html.escape(str(best.get('selection_reason','')))}</p>
+        </section>
+        """
+
+    rows_html: List[str] = []
+    for idx, row in enumerate(sorted_rows):
+        run_page = f"runs/{html.escape(row['_site_slug'])}/index.html"
+        gds_page = ""
+        if row.get("_site_gds"):
+            gds_page = f'runs/{html.escape(row["_site_slug"])}/{html.escape(row["_site_gds"])}'
+
+        selected_marker = '<span class="tag">Selected</span>' if idx == 0 else ""
+        gds_link = f'<a class="btn" href="{gds_page}">GDS</a>' if gds_page else '<span class="muted small">No GDS</span>'
+        tt_viewer_link = f'<a class="btn secondary" href="{TT_GDS_VIEWER_URL}" target="_blank" rel="noopener noreferrer">Open View</a>'
+        row_class = "selected-row" if idx == 0 else ""
+
+        rows_html.append(
+            "<tr class=\"%s\">"
+            "<td>%s</td>"
+            "<td><a href=\"%s\"><strong>%s / %s</strong></a><div class=\"muted small mono\">%s</div></td>"
+            "<td>%s</td>"
+            "<td>%s</td>"
+            "<td>%s</td>"
+            "<td>%s</td>"
+            "<td>%s</td>"
+            "<td>%s</td>"
+            "<td>%s</td>"
+            "<td>%s</td>"
+            "<td>%s</td>"
+            "<td>%s</td>"
+            "</tr>"
+            % (
+                row_class,
+                selected_marker,
+                run_page,
+                html.escape(str(row.get("_variant", ""))),
+                html.escape(str(row.get("_run_dir", ""))),
+                html.escape(str(row.get("_artifact", ""))),
+                html.escape(str(row.get("clock_ns", ""))),
+                html.escape(str(row.get("setup_wns_ns", ""))),
+                html.escape(str(row.get("setup_tns_ns", ""))),
+                html.escape(str(row.get("drc_errors", ""))),
+                html.escape(str(row.get("lvs_errors", ""))),
+                html.escape(str(row.get("antenna_violations", ""))),
+                badge_html(row.get("status", "")),
+                html.escape(str(row.get("selection_reason", ""))),
+                gds_link,
+                tt_viewer_link,
+            )
         )
 
     index_html = f"""<!doctype html>
@@ -444,27 +627,81 @@ def build_site(site_root: Path, rows: List[Dict[str, str]]) -> None:
 <head>
   <meta charset="utf-8">
   <title>ASIC Flow Run Explorer</title>
+  <style>{site_css}</style>
 </head>
 <body>
-  <h1>ASIC Flow Run Explorer</h1>
-  {best_text}
-  <table border="1" cellspacing="0" cellpadding="4">
-    <tr>
-      <th>Selected</th>
-      <th>Run</th>
-      <th>Clock (ns)</th>
-      <th>Setup WNS</th>
-      <th>Setup TNS</th>
-      <th>DRC</th>
-      <th>LVS</th>
-      <th>Antenna</th>
-      <th>Status</th>
-      <th>Selection rationale</th>
-      <th>GDS</th>
-      <th>Viewer</th>
-    </tr>
-    {''.join(rows_html)}
-  </table>
+  <div class="wrap">
+    <section class="hero">
+      <h1>ASIC Flow Run Explorer</h1>
+      <p>Published summary of all collected runs, how the best run was selected, and direct access to per-run pages and downloadable GDS files.</p>
+    </section>
+
+    <div class="grid">
+      <section class="card rules">
+        <h2>Selection order</h2>
+        <ol class="list-clean">
+          <li>Clean signoff plus non-negative setup timing wins.</li>
+          <li>If no full PASS exists, clean signoff wins over signoff violations.</li>
+          <li>Among comparable runs, lower requested clock period is preferred.</li>
+          <li>Setup WNS/TNS are used as tie-breakers.</li>
+        </ol>
+      </section>
+
+      {best_text}
+    </div>
+
+    <section class="card" style="margin-top:18px">
+      <h2>Run overview</h2>
+      <div class="stats">
+        <div class="stat">
+          <div class="label">Total runs</div>
+          <div class="value">{total_runs}</div>
+        </div>
+        <div class="stat">
+          <div class="label">PASS runs</div>
+          <div class="value">{pass_count}</div>
+        </div>
+        <div class="stat">
+          <div class="label">Non-pass runs</div>
+          <div class="value">{fail_count}</div>
+        </div>
+        <div class="stat">
+          <div class="label">Best clock</div>
+          <div class="value">{html.escape(str(sorted_rows[0].get('clock_ns','') if sorted_rows else ''))}</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card table-card">
+      <div class="table-head">
+        <h2>All runs</h2>
+        <span class="muted small">Top row is the selected best run</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Selected</th>
+              <th>Run</th>
+              <th>Clock (ns)</th>
+              <th>Setup WNS</th>
+              <th>Setup TNS</th>
+              <th>DRC</th>
+              <th>LVS</th>
+              <th>Antenna</th>
+              <th>Status</th>
+              <th>Selection rationale</th>
+              <th>GDS</th>
+              <th>GDS Viewer (TinyTapeout)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {''.join(rows_html)}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
 </body>
 </html>
 """
