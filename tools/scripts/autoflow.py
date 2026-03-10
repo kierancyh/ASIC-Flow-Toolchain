@@ -218,7 +218,7 @@ def choose_next_clock(
     """
     Lower clock period is harder.
     pass_bound = smallest known passing clock
-    fail_bound = largest known failing clock that is below/at the current search frontier
+    fail_bound = largest known failing clock below the current passing bound
     """
 
     next_step = step
@@ -228,7 +228,7 @@ def choose_next_clock(
         if fail_bound is None:
             next_clock = current - step
         else:
-            interval = fail_bound - pass_bound
+            interval = pass_bound - fail_bound
             if interval <= tolerance_ns:
                 return None, next_step
             next_clock = midpoint(pass_bound, fail_bound)
@@ -237,7 +237,7 @@ def choose_next_clock(
         if pass_bound is None:
             next_clock = current + step
         else:
-            interval = fail_bound - pass_bound
+            interval = pass_bound - fail_bound
             if interval <= tolerance_ns:
                 return None, next_step
             next_clock = midpoint(pass_bound, fail_bound)
