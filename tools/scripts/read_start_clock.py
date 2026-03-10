@@ -32,41 +32,60 @@ def resolve_variant_path(value: str) -> Path:
     raise SystemExit(f"Cannot map variant '{value}' to a directory containing variant.yaml")
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description="Read the auto start clock from variant.yaml")
-    ap.add_argument("--variant", required=True)
-    args = ap.parse_args()
-
-    variant_dir = resolve_variant_path(args.variant)
-    cfg = load_yaml(variant_dir / "variant.yaml")
-
+def read_clock_field(cfg: Dict[str, Any], field: str) -> Any:
     clock_cfg = cfg.get("clock", {}) or {}
 
-    candidates = [
-        clock_cfg.get("start_ns"),
-        cfg.get("start_clock_ns"),
-        clock_cfg.get("period"),
-        clock_cfg.get("period_ns"),
-    ]
+    if field == "start_ns":
+        candidates = [
+            clock_cfg.get("start_ns"),
+            cfg.get("start_clock_ns"),
+            clock_cfg.get("period"),
+            clock_cfg.get("period_ns"),
+        ]
+    elif field == "max_ns_cap":
+        candidates = [
+            clock_cfg.get("max_ns_cap"),
+            clock_cfg.get("max_clock_ns"),
+            cfg.get("max_clock_ns_cap"),
+            cfg.get("max_clock_ns"),
+        ]
+    else:
+        raise SystemExit(f"Unsupported field '{field}'")
 
-    value = None
     for candidate in candidates:
         if candidate not in (None, ""):
-          value = candidate
-          break
+            return candidate
+    return None
 
+
+def emit_numeric(value: Any, source: Path, field: str) -> None:
     if value in (None, ""):
-        raise SystemExit(f"No start clock found in {variant_dir / 'variant.yaml'}")
+        raise SystemExit(f"No {field} found in {source}")
 
     try:
         numeric = float(value)
     except Exception as exc:
-        raise SystemExit(f"Invalid start clock '{value}' in {variant_dir / 'variant.yaml'}") from exc
+        raise SystemExit(f"Invalid {field} '{value}' in {source}") from exc
+
+    if numeric <= 0:
+        raise SystemExit(f"{field} must be > 0 in {source}")
 
     if numeric.is_integer():
         print(int(numeric))
     else:
         print(round(numeric, 6))
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Read clock-related fields from variant.yaml")
+    ap.add_argument("--variant", required=True)
+    ap.add_argument("--field", default="start_ns", choices=["start_ns", "max_ns_cap"])
+    args = ap.parse_args()
+
+    variant_dir = resolve_variant_path(args.variant)
+    cfg = load_yaml(variant_dir / "variant.yaml")
+    value = read_clock_field(cfg, args.field)
+    emit_numeric(value, variant_dir / "variant.yaml", args.field)
 
 
 if __name__ == "__main__":

@@ -124,12 +124,13 @@ def build_refine_between(
 def build_expand_upward(
     highest_tested: float,
     expand_step_ns: float,
+    max_clock_ns: float,
     existing: Set[float],
     batch_size: int,
 ) -> List[float]:
     candidates = []
     current = highest_tested + expand_step_ns
-    while len(candidates) < batch_size:
+    while current <= max_clock_ns and len(candidates) < batch_size:
         c = round(current, 6)
         if c not in existing:
             candidates.append(c)
@@ -151,6 +152,7 @@ def main() -> None:
     ap.add_argument("--expand-step-ns", type=float, required=True)
     ap.add_argument("--refine-step-ns", type=float, required=True)
     ap.add_argument("--min-clock-ns", type=float, required=True)
+    ap.add_argument("--max-clock-ns", type=float, required=True)
     ap.add_argument("--tolerance-ns", type=float, required=True)
     ap.add_argument("--batch-size", type=int, default=4)
     ap.add_argument("--github-output", type=Path, default=None)
@@ -165,8 +167,6 @@ def main() -> None:
     passes = sorted([row["clock_ns"] for row in rows if row["status"] == "PASS"])
     non_flow_results = [row for row in rows if row["status"] != "FLOW_FAIL"]
 
-    # Critical guard:
-    # if everything is FLOW_FAIL, do NOT expand upward. Stop refinement entirely.
     if not non_flow_results:
         write_output([], args.github_output)
         return
@@ -195,12 +195,15 @@ def main() -> None:
         write_output(matrix, args.github_output)
         return
 
-    # No PASS, but at least one non-flow result exists.
-    # Only then does upward expansion make sense.
     highest_tested = max(row["clock_ns"] for row in non_flow_results)
+    if highest_tested >= args.max_clock_ns:
+        write_output([], args.github_output)
+        return
+
     matrix = build_expand_upward(
         highest_tested=highest_tested,
         expand_step_ns=args.expand_step_ns,
+        max_clock_ns=args.max_clock_ns,
         existing=existing,
         batch_size=args.batch_size,
     )
