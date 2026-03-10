@@ -35,27 +35,27 @@ on:
         default: ""
         type: string
       min_clock_ns:
-        description: "Auto mode minimum clock in ns"
+        description: "Minimum clock period in ns"
         required: false
-        default: "5"
+        default: "20"
         type: string
       max_clock_ns:
-        description: "Auto mode maximum clock in ns"
+        description: "Maximum clock period in ns"
         required: false
         default: "200"
         type: string
       initial_step_ns:
-        description: "Auto mode initial step in ns"
+        description: "Initial coarse sweep step in ns"
         required: false
         default: "20"
         type: string
       tolerance_ns:
-        description: "Auto mode stop tolerance in ns"
+        description: "Final stop tolerance in ns"
         required: false
         default: "1"
         type: string
       max_iters:
-        description: "Auto mode maximum iterations"
+        description: "Reserved for legacy serial autoflow compatibility"
         required: false
         default: "8"
         type: string
@@ -125,6 +125,13 @@ jobs:
       effective_mode: ${{ steps.resolve.outputs.effective_mode }}
       start_clock_ns: ${{ steps.start.outputs.start_clock_ns }}
       fixed_matrix_json: ${{ steps.fixed.outputs.fixed_matrix_json }}
+      coarse_matrix_json: ${{ steps.coarse.outputs.coarse_matrix_json }}
+      min_clock_ns: ${{ steps.sweep.outputs.min_clock_ns }}
+      max_clock_ns: ${{ steps.sweep.outputs.max_clock_ns }}
+      coarse_step_ns: ${{ steps.sweep.outputs.coarse_step_ns }}
+      refine1_step_ns: ${{ steps.sweep.outputs.refine1_step_ns }}
+      refine2_step_ns: ${{ steps.sweep.outputs.refine2_step_ns }}
+      tolerance_ns: ${{ steps.sweep.outputs.tolerance_ns }}
       openlane_image: ${{ steps.tools.outputs.openlane_image }}
       open_pdks_rev: ${{ steps.tools.outputs.open_pdks_rev }}
 
@@ -225,6 +232,47 @@ jobs:
           echo "start_clock_ns=${START_CLOCK_NS}" >> "$GITHUB_OUTPUT"
           echo "start_clock_ns=${START_CLOCK_NS}"
 
+      - name: Resolve sweep parameters
+        id: sweep
+        env:
+          INPUT_MIN_CLOCK_NS: ${{ github.event.inputs.min_clock_ns }}
+          INPUT_MAX_CLOCK_NS: ${{ github.event.inputs.max_clock_ns }}
+          INPUT_INITIAL_STEP_NS: ${{ github.event.inputs.initial_step_ns }}
+          INPUT_TOLERANCE_NS: ${{ github.event.inputs.tolerance_ns }}
+        run: |
+          python - <<'PY'
+          import math
+          import os
+
+          min_clock = float(os.environ.get("INPUT_MIN_CLOCK_NS", "") or "20")
+          max_clock = float(os.environ.get("INPUT_MAX_CLOCK_NS", "") or "200")
+          coarse_step = float(os.environ.get("INPUT_INITIAL_STEP_NS", "") or "20")
+          tolerance = float(os.environ.get("INPUT_TOLERANCE_NS", "") or "1")
+
+          if min_clock > max_clock:
+              raise SystemExit("min_clock_ns must be <= max_clock_ns")
+          if coarse_step <= 0:
+              raise SystemExit("initial_step_ns must be > 0")
+          if tolerance <= 0:
+              raise SystemExit("tolerance_ns must be > 0")
+
+          refine1 = max(tolerance, coarse_step / 4.0)
+          refine2 = tolerance
+
+          def fmt(v: float) -> str:
+              if float(v).is_integer():
+                  return str(int(v))
+              return str(round(v, 6))
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              print(f"min_clock_ns={fmt(min_clock)}", file=f)
+              print(f"max_clock_ns={fmt(max_clock)}", file=f)
+              print(f"coarse_step_ns={fmt(coarse_step)}", file=f)
+              print(f"refine1_step_ns={fmt(refine1)}", file=f)
+              print(f"refine2_step_ns={fmt(refine2)}", file=f)
+              print(f"tolerance_ns={fmt(tolerance)}", file=f)
+          PY
+
       - name: Resolve fixed matrix
         id: fixed
         env:
@@ -287,9 +335,10 @@ jobs:
           deduped = []
           seen = set()
           for value in clocks:
-              if value not in seen:
-                  deduped.append(value)
-                  seen.add(value)
+              key = round(float(value), 6)
+              if key not in seen:
+                  deduped.append(int(key) if float(key).is_integer() else key)
+                  seen.add(key)
 
           deduped = deduped[:matrix_cap]
 
@@ -298,6 +347,27 @@ jobs:
 
           print(json.dumps(deduped))
           PY
+
+      - name: Resolve coarse auto matrix
+        id: coarse
+        env:
+          EFFECTIVE_MODE: ${{ steps.resolve.outputs.effective_mode }}
+          START_CLOCK_NS: ${{ steps.start.outputs.start_clock_ns }}
+          MIN_CLOCK_NS: ${{ steps.sweep.outputs.min_clock_ns }}
+          MAX_CLOCK_NS: ${{ steps.sweep.outputs.max_clock_ns }}
+          COARSE_STEP_NS: ${{ steps.sweep.outputs.coarse_step_ns }}
+        run: |
+          COARSE_MATRIX_JSON="[]"
+          if [ "${EFFECTIVE_MODE}" = "auto" ]; then
+            COARSE_MATRIX_JSON="$(python tools/scripts/make_clock_matrix.py \
+              --start-clock-ns "${START_CLOCK_NS}" \
+              --min-clock-ns "${MIN_CLOCK_NS}" \
+              --max-clock-ns "${MAX_CLOCK_NS}" \
+              --step-ns "${COARSE_STEP_NS}")"
+          fi
+
+          echo "coarse_matrix_json=${COARSE_MATRIX_JSON}" >> "$GITHUB_OUTPUT"
+          echo "${COARSE_MATRIX_JSON}"
 
       - name: Write plan summary
         run: |
@@ -309,10 +379,16 @@ jobs:
             echo "- Auto start clock: \`${{ steps.start.outputs.start_clock_ns }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  autoflow:
+  coarse-sweep:
     needs: plan
-    if: ${{ needs.plan.outputs.effective_mode == 'auto' }}
+    if: ${{ needs.plan.outputs.effective_mode == 'auto' && needs.plan.outputs.coarse_matrix_json != '[]' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        clock_ns: ${{ fromJson(needs.plan.outputs.coarse_matrix_json) }}
 
     steps:
       - name: Check out repository
@@ -351,33 +427,28 @@ jobs:
         run: |
           docker pull "${OPENLANE_IMAGE}"
 
-      - name: Run autoflow
+      - name: Run coarse sweep point
         env:
           VARIANT: ${{ needs.plan.outputs.resolved_variant }}
-          START_CLOCK_NS: ${{ needs.plan.outputs.start_clock_ns }}
           OPENLANE_IMAGE: ${{ needs.plan.outputs.openlane_image }}
-          MIN_CLOCK_NS: ${{ github.event.inputs.min_clock_ns }}
-          MAX_CLOCK_NS: ${{ github.event.inputs.max_clock_ns }}
-          INITIAL_STEP_NS: ${{ github.event.inputs.initial_step_ns }}
-          TOLERANCE_NS: ${{ github.event.inputs.tolerance_ns }}
-          MAX_ITERS: ${{ github.event.inputs.max_iters }}
           SYNTH_STRATEGY: ${{ github.event.inputs.synth_strategy }}
           RUN_ANTENNA_REPAIR: ${{ github.event.inputs.run_antenna_repair }}
           RUN_HEURISTIC_DIODE_INSERTION: ${{ github.event.inputs.run_heuristic_diode_insertion }}
           RUN_POST_GRT_DESIGN_REPAIR: ${{ github.event.inputs.run_post_grt_design_repair }}
           RUN_POST_GRT_RESIZER_TIMING: ${{ github.event.inputs.run_post_grt_resizer_timing }}
           PDK_ROOT: ${{ github.workspace }}/.volare
+          CLOCK_NS: ${{ matrix.clock_ns }}
         run: |
           python tools/scripts/autoflow.py \
             --variant "${VARIANT}" \
             --pdk-root "${PDK_ROOT}" \
             --openlane-image "${OPENLANE_IMAGE}" \
-            --start-clock-ns "${START_CLOCK_NS}" \
-            --min-clock-ns "${MIN_CLOCK_NS:-5}" \
-            --max-clock-ns "${MAX_CLOCK_NS:-200}" \
-            --initial-step-ns "${INITIAL_STEP_NS:-20}" \
-            --tolerance-ns "${TOLERANCE_NS:-1}" \
-            --max-iters "${MAX_ITERS:-8}" \
+            --start-clock-ns "${CLOCK_NS}" \
+            --min-clock-ns "${CLOCK_NS}" \
+            --max-clock-ns "${CLOCK_NS}" \
+            --initial-step-ns "1" \
+            --tolerance-ns "0.000001" \
+            --max-iters "1" \
             --synth-strategy "${SYNTH_STRATEGY:-AREA 3}" \
             --run-antenna-repair "${RUN_ANTENNA_REPAIR:-true}" \
             --run-heuristic-diode-insertion "${RUN_HEURISTIC_DIODE_INSERTION:-true}" \
@@ -388,16 +459,311 @@ jobs:
       - name: Diagnostics
         if: always()
         run: |
-          echo "==== ci_out tree ===="
+          echo "==== coarse ci_out tree ===="
           find ci_out -maxdepth 4 -type f | sort || true
           echo "==== runs tree ===="
           find runs -maxdepth 4 -type f | sort | head -400 || true
 
-      - name: Upload autoflow artifacts
+      - name: Upload coarse artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: autoflow-${{ needs.plan.outputs.resolved_variant }}
+          name: coarse-${{ needs.plan.outputs.resolved_variant }}-${{ matrix.clock_ns }}ns
+          path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
+          if-no-files-found: error
+          include-hidden-files: true
+
+  select-refine-1:
+    needs:
+      - plan
+      - coarse-sweep
+    if: ${{ always() && needs.plan.outputs.effective_mode == 'auto' && needs.coarse-sweep.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    outputs:
+      matrix_json: ${{ steps.select.outputs.matrix_json }}
+      done: ${{ steps.select.outputs.done }}
+      lowest_pass_ns: ${{ steps.select.outputs.lowest_pass_ns }}
+      highest_fail_below_pass_ns: ${{ steps.select.outputs.highest_fail_below_pass_ns }}
+      reason: ${{ steps.select.outputs.reason }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download coarse artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: downloaded_artifacts
+
+      - name: Select refine-1 matrix
+        id: select
+        run: |
+          python tools/scripts/select_refine_matrix.py \
+            --artifacts-root downloaded_artifacts \
+            --expand-step-ns "${{ needs.plan.outputs.coarse_step_ns }}" \
+            --refine-step-ns "${{ needs.plan.outputs.refine1_step_ns }}" \
+            --min-clock-ns "${{ needs.plan.outputs.min_clock_ns }}" \
+            --max-clock-ns "${{ needs.plan.outputs.max_clock_ns }}" \
+            --tolerance-ns "${{ needs.plan.outputs.tolerance_ns }}" \
+            --batch-size 4 \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Append refine-1 selection summary
+        run: |
+          {
+            echo "## Refine round 1 selection"
+            echo ""
+            echo "- Lowest pass: \`${{ steps.select.outputs.lowest_pass_ns }}\`"
+            echo "- Highest fail below pass: \`${{ steps.select.outputs.highest_fail_below_pass_ns }}\`"
+            echo "- Next matrix: \`${{ steps.select.outputs.matrix_json }}\`"
+            echo "- Why: ${{ steps.select.outputs.reason }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  refine-sweep-1:
+    needs:
+      - plan
+      - select-refine-1
+    if: ${{ needs.plan.outputs.effective_mode == 'auto' && needs.select-refine-1.outputs.matrix_json != '[]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        clock_ns: ${{ fromJson(needs.select-refine-1.outputs.matrix_json) }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install volare pyyaml
+
+      - name: Restore PDK cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.volare
+          key: ${{ runner.os }}-sky130-volare-${{ needs.plan.outputs.open_pdks_rev }}
+          restore-keys: |
+            ${{ runner.os }}-sky130-volare-
+
+      - name: Install Sky130 PDK with Volare
+        env:
+          PDK_ROOT: ${{ github.workspace }}/.volare
+          OPEN_PDKS_REV: ${{ needs.plan.outputs.open_pdks_rev }}
+        run: |
+          mkdir -p "${PDK_ROOT}"
+          volare enable --pdk sky130 "${OPEN_PDKS_REV}"
+
+      - name: Pull OpenLane image
+        env:
+          OPENLANE_IMAGE: ${{ needs.plan.outputs.openlane_image }}
+        run: |
+          docker pull "${OPENLANE_IMAGE}"
+
+      - name: Run refine sweep point 1
+        env:
+          VARIANT: ${{ needs.plan.outputs.resolved_variant }}
+          OPENLANE_IMAGE: ${{ needs.plan.outputs.openlane_image }}
+          SYNTH_STRATEGY: ${{ github.event.inputs.synth_strategy }}
+          RUN_ANTENNA_REPAIR: ${{ github.event.inputs.run_antenna_repair }}
+          RUN_HEURISTIC_DIODE_INSERTION: ${{ github.event.inputs.run_heuristic_diode_insertion }}
+          RUN_POST_GRT_DESIGN_REPAIR: ${{ github.event.inputs.run_post_grt_design_repair }}
+          RUN_POST_GRT_RESIZER_TIMING: ${{ github.event.inputs.run_post_grt_resizer_timing }}
+          PDK_ROOT: ${{ github.workspace }}/.volare
+          CLOCK_NS: ${{ matrix.clock_ns }}
+        run: |
+          python tools/scripts/autoflow.py \
+            --variant "${VARIANT}" \
+            --pdk-root "${PDK_ROOT}" \
+            --openlane-image "${OPENLANE_IMAGE}" \
+            --start-clock-ns "${CLOCK_NS}" \
+            --min-clock-ns "${CLOCK_NS}" \
+            --max-clock-ns "${CLOCK_NS}" \
+            --initial-step-ns "1" \
+            --tolerance-ns "0.000001" \
+            --max-iters "1" \
+            --synth-strategy "${SYNTH_STRATEGY:-AREA 3}" \
+            --run-antenna-repair "${RUN_ANTENNA_REPAIR:-true}" \
+            --run-heuristic-diode-insertion "${RUN_HEURISTIC_DIODE_INSERTION:-true}" \
+            --run-post-grt-design-repair "${RUN_POST_GRT_DESIGN_REPAIR:-true}" \
+            --run-post-grt-resizer-timing "${RUN_POST_GRT_RESIZER_TIMING:-false}" \
+            --out-root "ci_out/${VARIANT}"
+
+      - name: Diagnostics
+        if: always()
+        run: |
+          echo "==== refine-1 ci_out tree ===="
+          find ci_out -maxdepth 4 -type f | sort || true
+          echo "==== runs tree ===="
+          find runs -maxdepth 4 -type f | sort | head -400 || true
+
+      - name: Upload refine-1 artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: refine1-${{ needs.plan.outputs.resolved_variant }}-${{ matrix.clock_ns }}ns
+          path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
+          if-no-files-found: error
+          include-hidden-files: true
+
+  select-refine-2:
+    needs:
+      - plan
+      - coarse-sweep
+      - refine-sweep-1
+    if: ${{ always() && needs.plan.outputs.effective_mode == 'auto' && needs.refine-sweep-1.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    outputs:
+      matrix_json: ${{ steps.select.outputs.matrix_json }}
+      done: ${{ steps.select.outputs.done }}
+      lowest_pass_ns: ${{ steps.select.outputs.lowest_pass_ns }}
+      highest_fail_below_pass_ns: ${{ steps.select.outputs.highest_fail_below_pass_ns }}
+      reason: ${{ steps.select.outputs.reason }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download accumulated artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: downloaded_artifacts
+
+      - name: Select refine-2 matrix
+        id: select
+        run: |
+          python tools/scripts/select_refine_matrix.py \
+            --artifacts-root downloaded_artifacts \
+            --expand-step-ns "${{ needs.plan.outputs.refine1_step_ns }}" \
+            --refine-step-ns "${{ needs.plan.outputs.refine2_step_ns }}" \
+            --min-clock-ns "${{ needs.plan.outputs.min_clock_ns }}" \
+            --max-clock-ns "${{ needs.plan.outputs.max_clock_ns }}" \
+            --tolerance-ns "${{ needs.plan.outputs.tolerance_ns }}" \
+            --batch-size 6 \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Append refine-2 selection summary
+        run: |
+          {
+            echo "## Refine round 2 selection"
+            echo ""
+            echo "- Lowest pass: \`${{ steps.select.outputs.lowest_pass_ns }}\`"
+            echo "- Highest fail below pass: \`${{ steps.select.outputs.highest_fail_below_pass_ns }}\`"
+            echo "- Next matrix: \`${{ steps.select.outputs.matrix_json }}\`"
+            echo "- Why: ${{ steps.select.outputs.reason }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  refine-sweep-2:
+    needs:
+      - plan
+      - select-refine-2
+    if: ${{ needs.plan.outputs.effective_mode == 'auto' && needs.select-refine-2.outputs.matrix_json != '[]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        clock_ns: ${{ fromJson(needs.select-refine-2.outputs.matrix_json) }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install volare pyyaml
+
+      - name: Restore PDK cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.volare
+          key: ${{ runner.os }}-sky130-volare-${{ needs.plan.outputs.open_pdks_rev }}
+          restore-keys: |
+            ${{ runner.os }}-sky130-volare-
+
+      - name: Install Sky130 PDK with Volare
+        env:
+          PDK_ROOT: ${{ github.workspace }}/.volare
+          OPEN_PDKS_REV: ${{ needs.plan.outputs.open_pdks_rev }}
+        run: |
+          mkdir -p "${PDK_ROOT}"
+          volare enable --pdk sky130 "${OPEN_PDKS_REV}"
+
+      - name: Pull OpenLane image
+        env:
+          OPENLANE_IMAGE: ${{ needs.plan.outputs.openlane_image }}
+        run: |
+          docker pull "${OPENLANE_IMAGE}"
+
+      - name: Run refine sweep point 2
+        env:
+          VARIANT: ${{ needs.plan.outputs.resolved_variant }}
+          OPENLANE_IMAGE: ${{ needs.plan.outputs.openlane_image }}
+          SYNTH_STRATEGY: ${{ github.event.inputs.synth_strategy }}
+          RUN_ANTENNA_REPAIR: ${{ github.event.inputs.run_antenna_repair }}
+          RUN_HEURISTIC_DIODE_INSERTION: ${{ github.event.inputs.run_heuristic_diode_insertion }}
+          RUN_POST_GRT_DESIGN_REPAIR: ${{ github.event.inputs.run_post_grt_design_repair }}
+          RUN_POST_GRT_RESIZER_TIMING: ${{ github.event.inputs.run_post_grt_resizer_timing }}
+          PDK_ROOT: ${{ github.workspace }}/.volare
+          CLOCK_NS: ${{ matrix.clock_ns }}
+        run: |
+          python tools/scripts/autoflow.py \
+            --variant "${VARIANT}" \
+            --pdk-root "${PDK_ROOT}" \
+            --openlane-image "${OPENLANE_IMAGE}" \
+            --start-clock-ns "${CLOCK_NS}" \
+            --min-clock-ns "${CLOCK_NS}" \
+            --max-clock-ns "${CLOCK_NS}" \
+            --initial-step-ns "1" \
+            --tolerance-ns "0.000001" \
+            --max-iters "1" \
+            --synth-strategy "${SYNTH_STRATEGY:-AREA 3}" \
+            --run-antenna-repair "${RUN_ANTENNA_REPAIR:-true}" \
+            --run-heuristic-diode-insertion "${RUN_HEURISTIC_DIODE_INSERTION:-true}" \
+            --run-post-grt-design-repair "${RUN_POST_GRT_DESIGN_REPAIR:-true}" \
+            --run-post-grt-resizer-timing "${RUN_POST_GRT_RESIZER_TIMING:-false}" \
+            --out-root "ci_out/${VARIANT}"
+
+      - name: Diagnostics
+        if: always()
+        run: |
+          echo "==== refine-2 ci_out tree ===="
+          find ci_out -maxdepth 4 -type f | sort || true
+          echo "==== runs tree ===="
+          find runs -maxdepth 4 -type f | sort | head -400 || true
+
+      - name: Upload refine-2 artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: refine2-${{ needs.plan.outputs.resolved_variant }}-${{ matrix.clock_ns }}ns
           path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
           if-no-files-found: error
           include-hidden-files: true
@@ -406,8 +772,10 @@ jobs:
     needs: plan
     if: ${{ needs.plan.outputs.effective_mode == 'fixed' && needs.plan.outputs.fixed_matrix_json != '[]' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
         clock_ns: ${{ fromJson(needs.plan.outputs.fixed_matrix_json) }}
 
@@ -480,7 +848,7 @@ jobs:
       - name: Diagnostics
         if: always()
         run: |
-          echo "==== ci_out tree ===="
+          echo "==== fixed ci_out tree ===="
           find ci_out -maxdepth 4 -type f | sort || true
           echo "==== runs tree ===="
           find runs -maxdepth 4 -type f | sort | head -400 || true
@@ -497,9 +865,11 @@ jobs:
   compare-runs:
     needs:
       - plan
-      - autoflow
+      - coarse-sweep
+      - refine-sweep-1
+      - refine-sweep-2
       - run-flow
-    if: ${{ always() && (needs.autoflow.result != 'skipped' || needs.run-flow.result != 'skipped') }}
+    if: ${{ always() && (needs.coarse-sweep.result != 'skipped' || needs.refine-sweep-1.result != 'skipped' || needs.refine-sweep-2.result != 'skipped' || needs.run-flow.result != 'skipped') }}
     runs-on: ubuntu-latest
 
     steps:
