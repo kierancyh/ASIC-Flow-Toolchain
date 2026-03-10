@@ -16,15 +16,15 @@ on:
         required: false
         default: "0"
         type: string
-      max_clock_ns:
-        description: "Maximum clock period in ns"
-        required: false
-        default: "200"
-        type: string
       initial_step_ns:
         description: "Initial coarse sweep step in ns"
         required: false
         default: "20"
+        type: string
+      coarse_steps:
+        description: "Number of coarse +/- step levels around the baseline"
+        required: false
+        default: "4"
         type: string
       tolerance_ns:
         description: "Final stop tolerance in ns"
@@ -97,8 +97,8 @@ jobs:
       start_clock_ns: ${{ steps.start.outputs.start_clock_ns }}
       coarse_matrix_json: ${{ steps.coarse.outputs.coarse_matrix_json }}
       min_clock_ns: ${{ steps.sweep.outputs.min_clock_ns }}
-      max_clock_ns: ${{ steps.sweep.outputs.max_clock_ns }}
       coarse_step_ns: ${{ steps.sweep.outputs.coarse_step_ns }}
+      coarse_steps: ${{ steps.sweep.outputs.coarse_steps }}
       refine1_step_ns: ${{ steps.sweep.outputs.refine1_step_ns }}
       refine2_step_ns: ${{ steps.sweep.outputs.refine2_step_ns }}
       tolerance_ns: ${{ steps.sweep.outputs.tolerance_ns }}
@@ -173,9 +173,6 @@ jobs:
             echo "open_pdks_rev=${OPEN_PDKS_REV}"
           } >> "$GITHUB_OUTPUT"
 
-          echo "openlane_image=${OPENLANE_IMAGE}"
-          echo "open_pdks_rev=${OPEN_PDKS_REV}"
-
       - name: Resolve auto start clock from variant.yaml
         id: start
         env:
@@ -183,28 +180,27 @@ jobs:
         run: |
           START_CLOCK_NS="$(python tools/scripts/read_start_clock.py --variant "${RESOLVED_VARIANT}")"
           echo "start_clock_ns=${START_CLOCK_NS}" >> "$GITHUB_OUTPUT"
-          echo "start_clock_ns=${START_CLOCK_NS}"
 
       - name: Resolve sweep parameters
         id: sweep
         env:
           INPUT_MIN_CLOCK_NS: ${{ github.event.inputs.min_clock_ns }}
-          INPUT_MAX_CLOCK_NS: ${{ github.event.inputs.max_clock_ns }}
           INPUT_INITIAL_STEP_NS: ${{ github.event.inputs.initial_step_ns }}
+          INPUT_COARSE_STEPS: ${{ github.event.inputs.coarse_steps }}
           INPUT_TOLERANCE_NS: ${{ github.event.inputs.tolerance_ns }}
         run: |
           python - <<'PY'
           import os
 
           min_clock = max(0.0, float(os.environ.get("INPUT_MIN_CLOCK_NS", "") or "0"))
-          max_clock = float(os.environ.get("INPUT_MAX_CLOCK_NS", "") or "200")
           coarse_step = float(os.environ.get("INPUT_INITIAL_STEP_NS", "") or "20")
+          coarse_steps = int(os.environ.get("INPUT_COARSE_STEPS", "") or "4")
           tolerance = float(os.environ.get("INPUT_TOLERANCE_NS", "") or "1")
 
-          if min_clock > max_clock:
-              raise SystemExit("min_clock_ns must be <= max_clock_ns")
           if coarse_step <= 0:
               raise SystemExit("initial_step_ns must be > 0")
+          if coarse_steps < 0:
+              raise SystemExit("coarse_steps must be >= 0")
           if tolerance <= 0:
               raise SystemExit("tolerance_ns must be > 0")
 
@@ -218,8 +214,8 @@ jobs:
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
               print(f"min_clock_ns={fmt(min_clock)}", file=f)
-              print(f"max_clock_ns={fmt(max_clock)}", file=f)
               print(f"coarse_step_ns={fmt(coarse_step)}", file=f)
+              print(f"coarse_steps={coarse_steps}", file=f)
               print(f"refine1_step_ns={fmt(refine1)}", file=f)
               print(f"refine2_step_ns={fmt(refine2)}", file=f)
               print(f"tolerance_ns={fmt(tolerance)}", file=f)
@@ -230,14 +226,14 @@ jobs:
         env:
           START_CLOCK_NS: ${{ steps.start.outputs.start_clock_ns }}
           MIN_CLOCK_NS: ${{ steps.sweep.outputs.min_clock_ns }}
-          MAX_CLOCK_NS: ${{ steps.sweep.outputs.max_clock_ns }}
           COARSE_STEP_NS: ${{ steps.sweep.outputs.coarse_step_ns }}
+          COARSE_STEPS: ${{ steps.sweep.outputs.coarse_steps }}
         run: |
           COARSE_MATRIX_JSON="$(python tools/scripts/make_clock_matrix.py \
             --start-clock-ns "${START_CLOCK_NS}" \
             --min-clock-ns "${MIN_CLOCK_NS}" \
-            --max-clock-ns "${MAX_CLOCK_NS}" \
-            --step-ns "${COARSE_STEP_NS}")"
+            --step-ns "${COARSE_STEP_NS}" \
+            --coarse-steps "${COARSE_STEPS}")"
 
           echo "coarse_matrix_json=${COARSE_MATRIX_JSON}" >> "$GITHUB_OUTPUT"
           echo "${COARSE_MATRIX_JSON}"
@@ -328,14 +324,6 @@ jobs:
             --run-post-grt-resizer-timing "${RUN_POST_GRT_RESIZER_TIMING:-false}" \
             --out-root "ci_out/${VARIANT}"
 
-      - name: Diagnostics
-        if: always()
-        run: |
-          echo "==== coarse ci_out tree ===="
-          find ci_out -maxdepth 4 -type f | sort || true
-          echo "==== runs tree ===="
-          find runs -maxdepth 4 -type f | sort | head -400 || true
-
       - name: Upload coarse artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -353,7 +341,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix_json: ${{ steps.select.outputs.matrix_json }}
-      done: ${{ steps.select.outputs.done }}
       lowest_pass_ns: ${{ steps.select.outputs.lowest_pass_ns }}
       highest_fail_below_pass_ns: ${{ steps.select.outputs.highest_fail_below_pass_ns }}
       reason: ${{ steps.select.outputs.reason }}
@@ -380,21 +367,9 @@ jobs:
             --expand-step-ns "${{ needs.plan.outputs.coarse_step_ns }}" \
             --refine-step-ns "${{ needs.plan.outputs.refine1_step_ns }}" \
             --min-clock-ns "${{ needs.plan.outputs.min_clock_ns }}" \
-            --max-clock-ns "${{ needs.plan.outputs.max_clock_ns }}" \
             --tolerance-ns "${{ needs.plan.outputs.tolerance_ns }}" \
             --batch-size 4 \
             --github-output "$GITHUB_OUTPUT"
-
-      - name: Append refine-1 selection summary
-        run: |
-          {
-            echo "## Refine round 1 selection"
-            echo ""
-            echo "- Lowest pass: \`${{ steps.select.outputs.lowest_pass_ns }}\`"
-            echo "- Highest fail below pass: \`${{ steps.select.outputs.highest_fail_below_pass_ns }}\`"
-            echo "- Next matrix: \`${{ steps.select.outputs.matrix_json }}\`"
-            echo "- Why: ${{ steps.select.outputs.reason }}"
-          } >> "$GITHUB_STEP_SUMMARY"
 
   refine-sweep-1:
     needs:
@@ -474,14 +449,6 @@ jobs:
             --run-post-grt-resizer-timing "${RUN_POST_GRT_RESIZER_TIMING:-false}" \
             --out-root "ci_out/${VARIANT}"
 
-      - name: Diagnostics
-        if: always()
-        run: |
-          echo "==== refine-1 ci_out tree ===="
-          find ci_out -maxdepth 4 -type f | sort || true
-          echo "==== runs tree ===="
-          find runs -maxdepth 4 -type f | sort | head -400 || true
-
       - name: Upload refine-1 artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -500,7 +467,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix_json: ${{ steps.select.outputs.matrix_json }}
-      done: ${{ steps.select.outputs.done }}
       lowest_pass_ns: ${{ steps.select.outputs.lowest_pass_ns }}
       highest_fail_below_pass_ns: ${{ steps.select.outputs.highest_fail_below_pass_ns }}
       reason: ${{ steps.select.outputs.reason }}
@@ -527,21 +493,9 @@ jobs:
             --expand-step-ns "${{ needs.plan.outputs.refine1_step_ns }}" \
             --refine-step-ns "${{ needs.plan.outputs.refine2_step_ns }}" \
             --min-clock-ns "${{ needs.plan.outputs.min_clock_ns }}" \
-            --max-clock-ns "${{ needs.plan.outputs.max_clock_ns }}" \
             --tolerance-ns "${{ needs.plan.outputs.tolerance_ns }}" \
             --batch-size 6 \
             --github-output "$GITHUB_OUTPUT"
-
-      - name: Append refine-2 selection summary
-        run: |
-          {
-            echo "## Refine round 2 selection"
-            echo ""
-            echo "- Lowest pass: \`${{ steps.select.outputs.lowest_pass_ns }}\`"
-            echo "- Highest fail below pass: \`${{ steps.select.outputs.highest_fail_below_pass_ns }}\`"
-            echo "- Next matrix: \`${{ steps.select.outputs.matrix_json }}\`"
-            echo "- Why: ${{ steps.select.outputs.reason }}"
-          } >> "$GITHUB_STEP_SUMMARY"
 
   refine-sweep-2:
     needs:
@@ -621,14 +575,6 @@ jobs:
             --run-post-grt-resizer-timing "${RUN_POST_GRT_RESIZER_TIMING:-false}" \
             --out-root "ci_out/${VARIANT}"
 
-      - name: Diagnostics
-        if: always()
-        run: |
-          echo "==== refine-2 ci_out tree ===="
-          find ci_out -maxdepth 4 -type f | sort || true
-          echo "==== runs tree ===="
-          find runs -maxdepth 4 -type f | sort | head -400 || true
-
       - name: Upload refine-2 artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -661,17 +607,11 @@ jobs:
         with:
           path: downloaded_artifacts
 
-      - name: Diagnostics
-        run: |
-          echo "==== downloaded_artifacts tree ===="
-          find downloaded_artifacts -maxdepth 6 -type f | sort || true
-          COUNT="$(find downloaded_artifacts -type f -name metrics.csv | wc -l | tr -d ' ')"
-          echo "metrics_csv_count=${COUNT}" >> "$GITHUB_ENV"
-          echo "Found ${COUNT} metrics.csv files"
-
       - name: Fail if no metrics were downloaded
         run: |
-          test "${metrics_csv_count}" != "0"
+          COUNT="$(find downloaded_artifacts -type f -name metrics.csv | wc -l | tr -d ' ')"
+          echo "Found ${COUNT} metrics.csv files"
+          test "${COUNT}" != "0"
 
       - name: Compare runs and build explorer
         run: |

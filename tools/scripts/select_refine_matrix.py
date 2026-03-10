@@ -140,7 +140,6 @@ def main() -> None:
     ap.add_argument("--expand-step-ns", type=float, required=True)
     ap.add_argument("--refine-step-ns", type=float, required=True)
     ap.add_argument("--min-clock-ns", type=float, required=True)
-    ap.add_argument("--max-clock-ns", type=float, required=True)
     ap.add_argument("--tolerance-ns", type=float, required=True)
     ap.add_argument("--batch-size", type=int, default=4)
     ap.add_argument("--github-output", default="")
@@ -150,13 +149,12 @@ def main() -> None:
         raise SystemExit("--expand-step-ns must be > 0")
     if args.refine_step_ns <= 0:
         raise SystemExit("--refine-step-ns must be > 0")
-    if args.min_clock_ns > args.max_clock_ns:
-        raise SystemExit("--min-clock-ns must be <= --max-clock-ns")
     if args.tolerance_ns <= 0:
         raise SystemExit("--tolerance-ns must be > 0")
     if args.batch_size <= 0:
         raise SystemExit("--batch-size must be > 0")
 
+    min_clock = max(0.0, float(args.min_clock_ns))
     rows = collect_rows(Path(args.artifacts_root))
     tried = {round(row["clock_ns"], 6) for row in rows}
     passing = sorted({row["clock_ns"] for row in rows if row["status"] == "PASS"})
@@ -176,12 +174,10 @@ def main() -> None:
 
     if lowest_pass is None:
         reason = "No passing clocks found yet; moving upward to easier clock periods."
-        top_tried = max(tried) if tried else max(0.0, args.min_clock_ns)
+        top_tried = max(tried) if tried else min_clock
 
         for i in range(1, args.batch_size + 1):
             candidate = round(top_tried + (i * args.expand_step_ns), 6)
-            if candidate > args.max_clock_ns + 1e-9:
-                break
             if candidate not in tried:
                 next_clocks.append(candidate)
 
@@ -194,7 +190,7 @@ def main() -> None:
 
         for i in range(1, args.batch_size + 1):
             candidate = round(lowest_pass - (i * args.expand_step_ns), 6)
-            if candidate < args.min_clock_ns - 1e-9:
+            if candidate < min_clock - 1e-9:
                 break
             if candidate not in tried:
                 next_clocks.append(candidate)
@@ -217,7 +213,7 @@ def main() -> None:
 
             cursor = round(lowest_pass - args.refine_step_ns, 6)
             while cursor > highest_fail_below_pass + 1e-9:
-                if cursor >= args.min_clock_ns - 1e-9 and cursor not in tried:
+                if cursor >= min_clock - 1e-9 and cursor not in tried:
                     next_clocks.append(cursor)
                 if len(next_clocks) >= args.batch_size:
                     break
