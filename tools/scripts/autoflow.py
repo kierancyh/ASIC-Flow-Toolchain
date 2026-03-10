@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 import yaml
 
@@ -352,55 +352,144 @@ def write_history_files(out_root: Path, history: List[Dict[str, Any]]) -> None:
     (out_root / "autoflow_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def compute_bounds(pass_clocks: Sequence[float], fail_clocks: Sequence[float]) -> Tuple[Optional[float], Optional[float]]:
+def compute_bounds(pass_clocks: Sequence[float], usable_fail_clocks: Sequence[float]) -> Tuple[Optional[float], Optional[float]]:
     pass_bound = min(pass_clocks) if pass_clocks else None
     if pass_bound is None:
         return None, None
 
-    lower_fails = [f for f in fail_clocks if f < pass_bound]
+    lower_fails = [f for f in usable_fail_clocks if f < pass_bound]
     fail_bound = max(lower_fails) if lower_fails else None
     return pass_bound, fail_bound
 
 
-def midpoint(a: float, b: float, precision: int = 6) -> float:
-    return round((a + b) / 2.0, precision)
+def parse_refine_steps(refine_steps_ns: str, initial_step_ns: float, tolerance_ns: float) -> List[float]:
+    steps: List[float] = [round(max(float(initial_step_ns), float(tolerance_ns)), 6)]
+    raw = (refine_steps_ns or "").strip()
+    if raw:
+        for token in raw.replace(";", ",").split(","):
+            piece = token.strip()
+            if not piece:
+                continue
+            value = float(piece)
+            if value <= 0:
+                raise SystemExit("refine-steps-ns values must be > 0")
+            rounded = round(max(value, float(tolerance_ns)), 6)
+            if rounded not in steps:
+                steps.append(rounded)
+
+    for idx in range(1, len(steps)):
+        if steps[idx] > steps[idx - 1]:
+            raise SystemExit("refine-steps-ns must be in non-increasing order after the coarse step")
+
+    return steps
+
+
+def next_downward_candidate_no_fail(
+    *,
+    pass_bound: float,
+    step: float,
+    min_clock_ns: float,
+    tested: Set[float],
+) -> Optional[float]:
+    candidate = round(pass_bound - step, 6)
+    while candidate >= round(min_clock_ns, 6):
+        if candidate not in tested:
+            return candidate
+        candidate = round(candidate - step, 6)
+    return None
+
+
+def next_downward_candidate_within_bracket(
+    *,
+    pass_bound: float,
+    fail_bound: float,
+    step: float,
+    tested: Set[float],
+) -> Optional[float]:
+    candidate = round(pass_bound - step, 6)
+    while candidate > round(fail_bound, 6):
+        if candidate not in tested:
+            return candidate
+        candidate = round(candidate - step, 6)
+    return None
+
+
+def next_upward_candidate(
+    *,
+    anchor_clock: float,
+    step: float,
+    max_clock_ns: float,
+    tested: Set[float],
+) -> Optional[float]:
+    candidate = round(anchor_clock + step, 6)
+    while candidate <= round(max_clock_ns, 6):
+        if candidate not in tested:
+            return candidate
+        candidate = round(candidate + step, 6)
+    return None
 
 
 def choose_next_clock(
     *,
-    current: float,
+    tested_clocks: Sequence[float],
     pass_clocks: Sequence[float],
-    fail_clocks: Sequence[float],
-    step: float,
+    usable_fail_clocks: Sequence[float],
+    flow_fail_clocks: Sequence[float],
+    step_sequence: Sequence[float],
+    step_index: int,
     min_clock_ns: float,
     max_clock_ns: float,
     tolerance_ns: float,
-) -> Tuple[Optional[float], float]:
-    next_step = max(step, tolerance_ns)
-    pass_bound, fail_bound = compute_bounds(pass_clocks, fail_clocks)
+) -> Tuple[Optional[float], int, str]:
+    tested = {round(v, 6) for v in tested_clocks}
+    pass_bound, fail_bound = compute_bounds(pass_clocks, usable_fail_clocks)
 
-    if pass_bound is None:
-        candidate = min(max_clock_ns, current + next_step)
-        if abs(candidate - current) < 1e-9:
-            return None, next_step
-        return round(candidate, 6), next_step
+    if pass_bound is None and flow_fail_clocks and not usable_fail_clocks:
+        return None, step_index, "Stopping because no usable pass/fail timing evidence was produced and at least one FLOW_FAIL occurred."
 
-    if fail_bound is None:
-        candidate = max(min_clock_ns, pass_bound - next_step)
-        if abs(candidate - current) < 1e-9:
-            return None, next_step
-        return round(candidate, 6), next_step
+    while True:
+        current_step = step_sequence[step_index]
 
-    interval = pass_bound - fail_bound
-    if interval <= tolerance_ns:
-        return None, max(tolerance_ns, interval / 2.0)
+        if pass_bound is None:
+            anchor_clock = max(tested) if tested else round(min_clock_ns, 6)
+            candidate = next_upward_candidate(
+                anchor_clock=anchor_clock,
+                step=current_step,
+                max_clock_ns=max_clock_ns,
+                tested=tested,
+            )
+            if candidate is None:
+                return None, step_index, f"Stopping because no passing point was found before the max clock cap {max_clock_ns} ns."
+            return candidate, step_index, f"No pass found yet, so search upward at the current {current_step} ns step."
 
-    candidate = midpoint(pass_bound, fail_bound)
-    candidate = max(min_clock_ns, min(max_clock_ns, candidate))
-    if abs(candidate - current) < 1e-9:
-        return None, max(tolerance_ns, interval / 2.0)
+        if fail_bound is None:
+            candidate = next_downward_candidate_no_fail(
+                pass_bound=pass_bound,
+                step=current_step,
+                min_clock_ns=min_clock_ns,
+                tested=tested,
+            )
+            if candidate is None:
+                return None, step_index, f"Reached the minimum clock floor {min_clock_ns} ns with no failure below the current best pass {pass_bound} ns."
+            return candidate, step_index, f"No failure below the current best pass {pass_bound} ns, so keep searching downward at {current_step} ns step."
 
-    return candidate, max(tolerance_ns, interval / 2.0)
+        interval = round(pass_bound - fail_bound, 6)
+        if interval <= tolerance_ns:
+            return None, step_index, f"Stopping because the pass/fail bracket [{fail_bound}, {pass_bound}] ns is within tolerance {tolerance_ns} ns."
+
+        candidate = next_downward_candidate_within_bracket(
+            pass_bound=pass_bound,
+            fail_bound=fail_bound,
+            step=current_step,
+            tested=tested,
+        )
+        if candidate is not None:
+            return candidate, step_index, f"Refining inside bracket [{fail_bound}, {pass_bound}] ns at the current {current_step} ns step."
+
+        if step_index + 1 >= len(step_sequence):
+            return None, step_index, f"Stopping because no further untested candidates remain inside bracket [{fail_bound}, {pass_bound}] ns at the finest configured step {current_step} ns."
+
+        step_index += 1
 
 
 def resolve_summary_path() -> Optional[Path]:
@@ -420,6 +509,7 @@ def main() -> None:
     ap.add_argument("--min-clock-ns", type=float, default=5.0)
     ap.add_argument("--max-clock-ns", type=float, default=200.0)
     ap.add_argument("--initial-step-ns", type=float, default=20.0)
+    ap.add_argument("--refine-steps-ns", default="5.0,1.0,0.5,0.125")
     ap.add_argument("--tolerance-ns", type=float, default=1.0)
     ap.add_argument("--max-iters", type=int, default=8)
     ap.add_argument("--synth-strategy", default="")
@@ -443,6 +533,7 @@ def main() -> None:
         "min_clock_ns": args.min_clock_ns,
         "max_clock_ns": args.max_clock_ns,
         "initial_step_ns": args.initial_step_ns,
+        "refine_steps_ns": args.refine_steps_ns,
         "tolerance_ns": args.tolerance_ns,
         "max_iters": args.max_iters,
         "openlane_image": args.openlane_image,
@@ -455,16 +546,20 @@ def main() -> None:
     summary_path = resolve_summary_path()
     append_summary(summary_path, f"## Autoflow: {safe_variant}")
     append_summary(summary_path, "")
+    append_summary(summary_path, f"Adaptive steps: {parse_refine_steps(args.refine_steps_ns, args.initial_step_ns, args.tolerance_ns)}")
+    append_summary(summary_path, "")
     append_summary(summary_path, "| Attempt | Clock (ns) | Status | Setup WNS | Setup TNS | DRC | LVS | Antenna | RC | Remarks |")
     append_summary(summary_path, "|---:|---:|---|---:|---:|---:|---:|---:|---:|---|")
 
     history: List[Dict[str, Any]] = []
     pass_clocks: List[float] = []
-    fail_clocks: List[float] = []
+    usable_fail_clocks: List[float] = []
+    flow_fail_clocks: List[float] = []
 
     current = max(args.min_clock_ns, min(args.max_clock_ns, args.start_clock_ns))
-    step = max(args.initial_step_ns, args.tolerance_ns)
-    tried: set[float] = set()
+    step_sequence = parse_refine_steps(args.refine_steps_ns, args.initial_step_ns, args.tolerance_ns)
+    step_index = 0
+    tried: Set[float] = set()
 
     for attempt in range(1, args.max_iters + 1):
         rounded_current = round(current, 6)
@@ -473,7 +568,8 @@ def main() -> None:
             break
         tried.add(rounded_current)
 
-        print(f"\n=== Attempt {attempt}: trying {rounded_current} ns ===", flush=True)
+        current_step = step_sequence[step_index]
+        print(f"\n=== Attempt {attempt}: trying {rounded_current} ns (step {current_step} ns) ===", flush=True)
 
         attempt_dir = out_root / f"clk_{clock_label(rounded_current)}ns_attempt_{attempt:02d}"
         attempt_dir.mkdir(parents=True, exist_ok=True)
@@ -629,22 +725,30 @@ def main() -> None:
 
         if status == "PASS":
             pass_clocks.append(rounded_current)
+        elif status == "FLOW_FAIL":
+            flow_fail_clocks.append(rounded_current)
         else:
-            fail_clocks.append(rounded_current)
+            usable_fail_clocks.append(rounded_current)
 
-        next_clock, step = choose_next_clock(
-            current=rounded_current,
+        next_clock, step_index, next_reason = choose_next_clock(
+            tested_clocks=sorted(tried),
             pass_clocks=pass_clocks,
-            fail_clocks=fail_clocks,
-            step=step,
+            usable_fail_clocks=usable_fail_clocks,
+            flow_fail_clocks=flow_fail_clocks,
+            step_sequence=step_sequence,
+            step_index=step_index,
             min_clock_ns=args.min_clock_ns,
             max_clock_ns=args.max_clock_ns,
             tolerance_ns=args.tolerance_ns,
         )
         if next_clock is None:
-            print("Stopping: tolerance reached or no further useful clock candidate.", flush=True)
+            print(next_reason, flush=True)
+            append_summary(summary_path, "")
+            append_summary(summary_path, f"Adaptive controller: {next_reason}")
             break
 
+        print(f"Adaptive controller: next clock = {next_clock} ns | {next_reason}", flush=True)
+        append_summary(summary_path, f"Adaptive controller: next clock = {next_clock} ns | {next_reason}")
         current = next_clock
 
     write_history_files(out_root, history)
