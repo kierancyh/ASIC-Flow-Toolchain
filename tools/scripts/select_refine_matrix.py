@@ -5,30 +5,16 @@ import argparse
 import csv
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 
-def to_float(value: Any) -> Optional[float]:
+def to_float(v: Any) -> Optional[float]:
     try:
-        if value in (None, "", "None"):
+        if v in (None, "", "None"):
             return None
-        return float(value)
+        return float(v)
     except Exception:
         return None
-
-
-def fmt(value: Optional[float]) -> str:
-    if value is None:
-        return ""
-    if float(value).is_integer():
-        return str(int(value))
-    return str(round(value, 6))
-
-
-def json_number(value: float):
-    if float(value).is_integer():
-        return int(value)
-    return round(value, 6)
 
 
 def read_csv_row(path: Path) -> Optional[Dict[str, str]]:
@@ -39,45 +25,32 @@ def read_csv_row(path: Path) -> Optional[Dict[str, str]]:
     return rows[0] if rows else None
 
 
-def signoff_clean(row: Dict[str, str]) -> bool:
-    for key in ("drc_errors", "lvs_errors", "antenna_violations"):
-        value = to_float(row.get(key))
-        if value is not None and value != 0.0:
-            return False
-    return True
-
-
-def timing_ok(row: Dict[str, str]) -> bool:
-    setup_wns = to_float(row.get("setup_wns_ns"))
-    setup_tns = to_float(row.get("setup_tns_ns"))
-    return (
-        setup_wns is not None
-        and setup_tns is not None
-        and setup_wns >= 0.0
-        and setup_tns >= 0.0
-    )
-
-
-def classify(row: Dict[str, str]) -> str:
+def classify_status(row: Dict[str, str]) -> str:
     raw_status = str(row.get("status", "")).strip().upper()
     if raw_status in {"FLOW_FAIL", "INCOMPLETE"}:
         return "FLOW_FAIL"
 
-    clean = signoff_clean(row)
-    ok = timing_ok(row)
+    swns = to_float(row.get("setup_wns_ns"))
+    stns = to_float(row.get("setup_tns_ns"))
+    drc = to_float(row.get("drc_errors"))
+    lvs = to_float(row.get("lvs_errors"))
+    ant = to_float(row.get("antenna_violations"))
 
-    if clean and ok:
+    timing_ok = swns is not None and stns is not None and swns >= 0.0 and stns >= 0.0
+    signoff_ok = all(v in (None, 0.0) for v in (drc, lvs, ant))
+
+    if signoff_ok and timing_ok:
         return "PASS"
-    if clean and not ok:
+    if signoff_ok and not timing_ok:
         return "TIMING_FAIL"
-    if (not clean) and ok:
+    if (not signoff_ok) and timing_ok:
         return "SIGNOFF_FAIL"
     return "SIGNOFF_AND_TIMING_FAIL"
 
 
 def collect_rows(artifacts_root: Path) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
-    seen: set[Path] = set()
+    seen: Set[Path] = set()
 
     patterns = [
         "**/ci_out/*/clk_*ns_*/metrics.csv",
@@ -101,7 +74,8 @@ def collect_rows(artifacts_root: Path) -> List[Dict[str, Any]]:
             rows.append(
                 {
                     "clock_ns": round(clock_ns, 6),
-                    "status": classify(row),
+                    "status": classify_status(row),
+                    "raw_status": str(row.get("status", "")).strip().upper(),
                     "path": str(csv_path),
                 }
             )
@@ -109,135 +83,128 @@ def collect_rows(artifacts_root: Path) -> List[Dict[str, Any]]:
     return rows
 
 
-def unique_desc(values: List[float]) -> List[float]:
-    seen = set()
-    ordered: List[float] = []
-    for value in sorted(values, reverse=True):
-        key = round(value, 6)
-        if key in seen:
-            continue
-        seen.add(key)
-        ordered.append(key)
-    return ordered
+def unique_sorted_desc(values: List[float]) -> List[float]:
+    return sorted(set(round(v, 6) for v in values), reverse=True)
 
 
-def write_output(path: Optional[Path], payload: Dict[str, str]) -> None:
-    if path is None:
-        for key, value in payload.items():
-            print(f"{key}={value}")
-        return
+def unique_sorted_asc(values: List[float]) -> List[float]:
+    return sorted(set(round(v, 6) for v in values))
 
-    with path.open("a", encoding="utf-8") as f:
-        for key, value in payload.items():
-            print(f"{key}={value}", file=f)
+
+def build_refine_between(
+    lowest_pass: float,
+    highest_fail_below_pass: Optional[float],
+    refine_step_ns: float,
+    min_clock_ns: float,
+    existing: Set[float],
+    batch_size: int,
+) -> List[float]:
+    if highest_fail_below_pass is None:
+        start = max(min_clock_ns, lowest_pass - refine_step_ns)
+        candidates: List[float] = []
+        current = start
+        while current >= min_clock_ns and len(candidates) < batch_size:
+            c = round(current, 6)
+            if c not in existing:
+                candidates.append(c)
+            current -= refine_step_ns
+        return unique_sorted_desc(candidates)
+
+    candidates = []
+    current = lowest_pass - refine_step_ns
+    while current > highest_fail_below_pass and len(candidates) < batch_size:
+        c = round(current, 6)
+        if c >= min_clock_ns and c not in existing:
+            candidates.append(c)
+        current -= refine_step_ns
+
+    return unique_sorted_desc(candidates)
+
+
+def build_expand_upward(
+    highest_tested: float,
+    expand_step_ns: float,
+    existing: Set[float],
+    batch_size: int,
+) -> List[float]:
+    candidates = []
+    current = highest_tested + expand_step_ns
+    while len(candidates) < batch_size:
+        c = round(current, 6)
+        if c not in existing:
+            candidates.append(c)
+        current += expand_step_ns
+    return unique_sorted_asc(candidates)
+
+
+def write_output(matrix: List[float], github_output: Optional[Path]) -> None:
+    matrix_json = json.dumps(matrix)
+    print(matrix_json)
+    if github_output is not None:
+        with github_output.open("a", encoding="utf-8") as f:
+            print(f"matrix_json={matrix_json}", file=f)
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(
-        description="Select the next automated refine matrix from downloaded artifacts."
-    )
-    ap.add_argument("--artifacts-root", required=True)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--artifacts-root", type=Path, required=True)
     ap.add_argument("--expand-step-ns", type=float, required=True)
     ap.add_argument("--refine-step-ns", type=float, required=True)
     ap.add_argument("--min-clock-ns", type=float, required=True)
     ap.add_argument("--tolerance-ns", type=float, required=True)
     ap.add_argument("--batch-size", type=int, default=4)
-    ap.add_argument("--github-output", default="")
+    ap.add_argument("--github-output", type=Path, default=None)
     args = ap.parse_args()
 
-    if args.expand_step_ns <= 0:
-        raise SystemExit("--expand-step-ns must be > 0")
-    if args.refine_step_ns <= 0:
-        raise SystemExit("--refine-step-ns must be > 0")
-    if args.tolerance_ns <= 0:
-        raise SystemExit("--tolerance-ns must be > 0")
-    if args.batch_size <= 0:
-        raise SystemExit("--batch-size must be > 0")
+    rows = collect_rows(args.artifacts_root)
+    if not rows:
+        write_output([], args.github_output)
+        return
 
-    min_clock = max(0.0, float(args.min_clock_ns))
-    rows = collect_rows(Path(args.artifacts_root))
-    tried = {round(row["clock_ns"], 6) for row in rows}
-    passing = sorted({row["clock_ns"] for row in rows if row["status"] == "PASS"})
-    failing = sorted({row["clock_ns"] for row in rows if row["status"] != "PASS"})
+    existing = {row["clock_ns"] for row in rows}
+    passes = sorted([row["clock_ns"] for row in rows if row["status"] == "PASS"])
+    non_flow_results = [row for row in rows if row["status"] != "FLOW_FAIL"]
 
-    lowest_pass = min(passing) if passing else None
-    highest_fail_below_pass = None
+    # Critical guard:
+    # if everything is FLOW_FAIL, do NOT expand upward. Stop refinement entirely.
+    if not non_flow_results:
+        write_output([], args.github_output)
+        return
 
-    if lowest_pass is not None:
-        fails_below = [value for value in failing if value < lowest_pass]
-        if fails_below:
-            highest_fail_below_pass = max(fails_below)
+    if passes:
+        lowest_pass = min(passes)
+        fails_below = sorted(
+            [row["clock_ns"] for row in rows if row["status"] != "PASS" and row["clock_ns"] < lowest_pass]
+        )
+        highest_fail_below_pass = max(fails_below) if fails_below else None
 
-    next_clocks: List[float] = []
-    done = False
-    reason = ""
+        if highest_fail_below_pass is not None:
+            interval = lowest_pass - highest_fail_below_pass
+            if interval <= args.tolerance_ns:
+                write_output([], args.github_output)
+                return
 
-    if lowest_pass is None:
-        reason = "No passing clocks found yet; moving upward to easier clock periods."
-        top_tried = max(tried) if tried else min_clock
+        matrix = build_refine_between(
+            lowest_pass=lowest_pass,
+            highest_fail_below_pass=highest_fail_below_pass,
+            refine_step_ns=args.refine_step_ns,
+            min_clock_ns=args.min_clock_ns,
+            existing=existing,
+            batch_size=args.batch_size,
+        )
+        write_output(matrix, args.github_output)
+        return
 
-        for i in range(1, args.batch_size + 1):
-            candidate = round(top_tried + (i * args.expand_step_ns), 6)
-            if candidate not in tried:
-                next_clocks.append(candidate)
-
-        if not next_clocks:
-            done = True
-            reason = "No passing clocks found and no larger untried clock periods remain."
-
-    elif highest_fail_below_pass is None:
-        reason = "Passes exist but no failing point below the lowest pass yet; probing downward."
-
-        for i in range(1, args.batch_size + 1):
-            candidate = round(lowest_pass - (i * args.expand_step_ns), 6)
-            if candidate < min_clock - 1e-9:
-                break
-            if candidate not in tried:
-                next_clocks.append(candidate)
-
-        if not next_clocks:
-            done = True
-            reason = "Passes exist but no lower failing point remains untried within bounds."
-
-    else:
-        bracket_width = lowest_pass - highest_fail_below_pass
-
-        if bracket_width <= args.tolerance_ns + 1e-9:
-            done = True
-            reason = "Bracket width is already within tolerance."
-        else:
-            reason = (
-                f"Refining downward from lowest pass {fmt(lowest_pass)} ns toward "
-                f"highest fail below pass {fmt(highest_fail_below_pass)} ns."
-            )
-
-            cursor = round(lowest_pass - args.refine_step_ns, 6)
-            while cursor > highest_fail_below_pass + 1e-9:
-                if cursor >= min_clock - 1e-9 and cursor not in tried:
-                    next_clocks.append(cursor)
-                if len(next_clocks) >= args.batch_size:
-                    break
-                cursor = round(cursor - args.refine_step_ns, 6)
-
-            if not next_clocks:
-                done = True
-                reason = "Bracket exists, but no new refine points remain between pass and fail bounds."
-
-    next_clocks = unique_desc(next_clocks)
-
-    payload = {
-        "matrix_json": json.dumps([json_number(value) for value in next_clocks]),
-        "done": "true" if done else "false",
-        "lowest_pass_ns": fmt(lowest_pass),
-        "highest_fail_below_pass_ns": fmt(highest_fail_below_pass),
-        "reason": reason,
-        "run_count": str(len(rows)),
-        "pass_count": str(len(passing)),
-        "fail_count": str(len(failing)),
-    }
-
-    output_path = Path(args.github_output) if args.github_output else None
-    write_output(output_path, payload)
+    # No PASS, but at least one non-flow result exists.
+    # Only then does upward expansion make sense.
+    highest_tested = max(row["clock_ns"] for row in non_flow_results)
+    matrix = build_expand_upward(
+        highest_tested=highest_tested,
+        expand_step_ns=args.expand_step_ns,
+        existing=existing,
+        batch_size=args.batch_size,
+    )
+    write_output(matrix, args.github_output)
 
 
 if __name__ == "__main__":

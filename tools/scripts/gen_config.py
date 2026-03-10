@@ -23,16 +23,30 @@ def normpath(value: str) -> str:
     return value.replace("\\", "/")
 
 
+def repo_rel(path: Path) -> str:
+    return normpath(os.path.relpath(path, ROOT))
+
+
 def resolve_path(variant_path: Path, value: str) -> str:
     if not value:
         return value
 
     value = normpath(value)
-    if value.startswith("/") or (len(value) > 2 and value[1] == ":" and value[2] in ("/", "\\")):
-        return value
+
+    # Repo-root style paths stay repo-root relative.
     if value.startswith(("designs/", ".github/", "tools/", "docs/")):
         return value
-    return normpath(os.path.normpath(str(variant_path / value)))
+
+    # Absolute paths are converted back into repo-relative if they live inside the repo.
+    p = Path(value)
+    if p.is_absolute():
+        try:
+            return repo_rel(p.resolve())
+        except Exception:
+            return normpath(str(p))
+
+    # Otherwise resolve relative to the variant folder, then convert to repo-relative.
+    return repo_rel((variant_path / value).resolve())
 
 
 def map_safe_variant_to_path(safe_variant: str) -> Path:
@@ -69,10 +83,15 @@ def resolve_sources(variant_path: Path, source_patterns: List[str]) -> List[str]
     sources: List[str] = []
     for pattern in source_patterns:
         sources.extend(glob.glob(str(variant_path / pattern), recursive=True))
-    sources = sorted(set(normpath(path) for path in sources))
-    if not sources:
+
+    resolved = sorted(
+        set(repo_rel(Path(path).resolve()) for path in sources if Path(path).exists())
+    )
+
+    if not resolved:
         raise SystemExit("No Verilog sources found. Check variant.yaml 'sources' globs.")
-    return sources
+
+    return resolved
 
 
 def main() -> None:
@@ -146,8 +165,6 @@ def main() -> None:
         "SIGNOFF_SDC_FILE": signoff_sdc,
         "RUN_LINTER": False,
         "RUN_VERILATOR": False,
-        "QUIT_ON_LINTER_ERRORS": False,
-        "QUIT_ON_VERILATOR_ERRORS": False,
     }
 
     if synth_strategy:
@@ -159,11 +176,14 @@ def main() -> None:
 
     synth_label = synth_strategy if synth_strategy else "OpenLane default (not overridden)"
     print(
-        f"Wrote {out_path} for {variant_path} @ {clock_ns}ns "
+        f"Wrote {out_path} for {repo_rel(variant_path)} @ {clock_ns}ns "
         f"(top={top_module}, clk={clock_port}, synth={synth_label}, "
         f"antenna_repair={run_antenna_repair}, diode_insertion={run_heuristic_diode_insertion}, "
         f"post_grt_repair={run_post_grt_design_repair}, post_grt_resizer_timing={run_post_grt_resizer_timing})"
     )
+    print(f"Resolved VERILOG_FILES={sources}")
+    print(f"Resolved PNR_SDC_FILE={pnr_sdc}")
+    print(f"Resolved SIGNOFF_SDC_FILE={signoff_sdc}")
 
 
 if __name__ == "__main__":
