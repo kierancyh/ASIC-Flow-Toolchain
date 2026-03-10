@@ -200,9 +200,35 @@ def build_theme_script(button_id: str, panel_id: str, storage_key: str) -> str:
     }}
   }}
 
+  function positionPanel() {{
+    if (panel.hidden) return;
+
+    const rect = button.getBoundingClientRect();
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const margin = 12;
+    const panelWidth = Math.min(320, Math.max(260, viewportWidth - (margin * 2)));
+
+    panel.style.width = panelWidth + "px";
+    panel.style.maxWidth = panelWidth + "px";
+
+    const panelHeight = panel.offsetHeight || 0;
+    let left = rect.right - panelWidth;
+    left = Math.max(margin, Math.min(left, viewportWidth - panelWidth - margin));
+
+    let top = rect.bottom + 12;
+    if (panelHeight > 0 && top + panelHeight > viewportHeight - margin) {{
+      top = Math.max(margin, rect.top - panelHeight - 12);
+    }}
+
+    panel.style.left = left + "px";
+    panel.style.top = top + "px";
+  }}
+
   function openPanel() {{
     panel.hidden = false;
     button.setAttribute("aria-expanded", "true");
+    window.requestAnimationFrame(positionPanel);
   }}
 
   function closePanel() {{
@@ -236,6 +262,9 @@ def build_theme_script(button_id: str, panel_id: str, storage_key: str) -> str:
       closePanel();
     }}
   }});
+
+  window.addEventListener("resize", positionPanel);
+  window.addEventListener("scroll", positionPanel, true);
 
   presetTheme.addEventListener("change", () => {{
     const preset = presets[presetTheme.value];
@@ -824,6 +853,7 @@ tr:hover td{background:rgba(255,255,255,0.06)}
 .theme-control{
   position:relative;
   flex:0 0 auto;
+  z-index:40;
 }
 .theme-launch{
   display:inline-flex;
@@ -840,12 +870,12 @@ tr:hover td{background:rgba(255,255,255,0.06)}
   box-shadow:var(--shadow);
 }
 .theme-widget{
-  position:absolute;
-  top:calc(100% + 10px);
-  right:0;
+  position:fixed;
+  top:72px;
+  right:24px;
   width:320px;
-  max-width:min(320px, calc(100vw - 56px));
-  z-index:30;
+  max-width:min(320px, calc(100vw - 24px));
+  z-index:5000;
 }
 .theme-widget-body{
   padding:16px;
@@ -906,9 +936,9 @@ tr:hover td{background:rgba(255,255,255,0.06)}
     align-self:flex-end;
   }
   .theme-widget{
-    left:0;
+    left:12px;
     right:auto;
-    width:min(320px, calc(100vw - 56px));
+    width:min(320px, calc(100vw - 24px));
   }
 }
 @media (max-width:680px){

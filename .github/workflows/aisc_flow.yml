@@ -7,57 +7,57 @@ on:
   workflow_dispatch:
     inputs:
       variant:
-        description: "Safe variant name such as designs_rns_crt"
+        description: 'Safe variant name such as designs_rns_crt'
         required: false
         default: ""
         type: string
       min_clock_ns:
-        description: "Minimum clock period in ns"
+        description: 'Minimum clock period in ns'
         required: false
         default: "0"
         type: string
       initial_step_ns:
-        description: "Initial coarse sweep step in ns"
+        description: 'Initial coarse sweep step in ns'
         required: false
         default: "20"
         type: string
       coarse_steps:
-        description: "Number of coarse +/- step levels around the baseline"
+        description: 'Number of coarse +/- step levels around the baseline'
         required: false
         default: "4"
         type: string
       mid_refine_step_ns:
-        description: "Mid refine stage step in ns"
+        description: 'Mid refine stage step in ns'
         required: false
         default: "5.0"
         type: string
       refine1_step_ns:
-        description: "Refine stage 1 step in ns"
+        description: 'Refine stage 1 step in ns'
         required: false
         default: "1.0"
         type: string
       refine2_step_ns:
-        description: "Refine stage 2 step in ns"
+        description: 'Refine stage 2 step in ns'
         required: false
         default: "0.5"
         type: string
       refine3_step_ns:
-        description: "Refine stage 3 step in ns"
+        description: 'Refine stage 3 step in ns'
         required: false
         default: "0.125"
         type: string
       tolerance_ns:
-        description: "Final stop tolerance in ns"
+        description: 'Final stop tolerance in ns'
         required: false
         default: "0.125"
         type: string
       synth_strategy:
-        description: "Optional synthesis strategy override (leave blank to use variant/OpenLane defaults)"
+        description: 'Optional synthesis strategy override (leave blank to use variant/OpenLane defaults)'
         required: false
         default: ""
         type: string
       run_antenna_repair:
-        description: "OpenLane RUN_ANTENNA_REPAIR"
+        description: 'OpenLane RUN_ANTENNA_REPAIR'
         required: false
         default: "true"
         type: choice
@@ -65,7 +65,7 @@ on:
           - "true"
           - "false"
       run_heuristic_diode_insertion:
-        description: "OpenLane RUN_HEURISTIC_DIODE_INSERTION"
+        description: 'OpenLane RUN_HEURISTIC_DIODE_INSERTION'
         required: false
         default: "true"
         type: choice
@@ -73,7 +73,7 @@ on:
           - "true"
           - "false"
       run_post_grt_design_repair:
-        description: "OpenLane RUN_POST_GRT_DESIGN_REPAIR"
+        description: 'OpenLane RUN_POST_GRT_DESIGN_REPAIR'
         required: false
         default: "true"
         type: choice
@@ -81,7 +81,7 @@ on:
           - "true"
           - "false"
       run_post_grt_resizer_timing:
-        description: "OpenLane RUN_POST_GRT_RESIZER_TIMING"
+        description: 'OpenLane RUN_POST_GRT_RESIZER_TIMING'
         required: false
         default: "false"
         type: choice
@@ -89,12 +89,12 @@ on:
           - "true"
           - "false"
       openlane_image:
-        description: "Docker image for OpenLane2"
+        description: 'Docker image for OpenLane2'
         required: false
         default: "ghcr.io/efabless/openlane2:2.4.0.dev1"
         type: string
       open_pdks_rev:
-        description: "Volare open_pdks revision for sky130"
+        description: 'Volare open_pdks revision for sky130'
         required: false
         default: "cd1748bb197f9b7af62a54507de6624e30363943"
         type: string
@@ -135,19 +135,19 @@ jobs:
       summary_post_grt_design_repair: ${{ steps.summary_knobs.outputs.post_grt_design_repair }}
       summary_post_grt_resizer_timing: ${{ steps.summary_knobs.outputs.post_grt_resizer_timing }}
       summary_synth_strategy: ${{ steps.summary_synth.outputs.summary_synth_strategy }}
-
+  
     steps:
       - uses: actions/checkout@v4
-
+  
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
+  
       - name: Install plan dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install pyyaml
-
+  
       - name: Resolve variant
         id: resolve
         env:
@@ -157,13 +157,13 @@ jobs:
           import os
           from pathlib import Path
           import yaml
-
+  
           manifest = yaml.safe_load(Path("manifest.yaml").read_text(encoding="utf-8")) or {}
           experiments = manifest.get("experiments", []) or []
-
+  
           requested = os.environ.get("INPUT_VARIANT", "").strip()
           resolved = ""
-
+  
           if requested:
               for exp in experiments:
                   variant = str(exp.get("variant", "")).strip()
@@ -178,16 +178,14 @@ jobs:
                   if exp.get("enabled", True) and exp.get("variant"):
                       resolved = str(exp["variant"]).replace("/", "_")
                       break
-
+  
           if not resolved:
               raise SystemExit("No enabled variant found in manifest.yaml")
-
+  
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
               print(f"resolved_variant={resolved}", file=f)
-
-          print(f"resolved_variant={resolved}")
           PY
-
+  
       - name: Resolve tool versions
         id: tools
         env:
@@ -196,12 +194,11 @@ jobs:
         run: |
           OPENLANE_IMAGE="${INPUT_OPENLANE_IMAGE:-ghcr.io/efabless/openlane2:2.4.0.dev1}"
           OPEN_PDKS_REV="${INPUT_OPEN_PDKS_REV:-cd1748bb197f9b7af62a54507de6624e30363943}"
-
           {
             echo "openlane_image=${OPENLANE_IMAGE}"
             echo "open_pdks_rev=${OPEN_PDKS_REV}"
           } >> "$GITHUB_OUTPUT"
-
+  
       - name: Resolve auto start clock from variant.yaml
         id: start
         env:
@@ -209,7 +206,7 @@ jobs:
         run: |
           START_CLOCK_NS="$(python tools/scripts/read_start_clock.py --variant "${RESOLVED_VARIANT}" --field start_ns)"
           echo "start_clock_ns=${START_CLOCK_NS}" >> "$GITHUB_OUTPUT"
-
+  
       - name: Resolve auto max clock cap from variant.yaml
         id: cap
         env:
@@ -217,7 +214,7 @@ jobs:
         run: |
           MAX_CLOCK_NS="$(python tools/scripts/read_start_clock.py --variant "${RESOLVED_VARIANT}" --field max_ns_cap)"
           echo "max_clock_ns=${MAX_CLOCK_NS}" >> "$GITHUB_OUTPUT"
-
+  
       - name: Resolve synthesis strategy label
         id: summary_synth
         env:
@@ -228,11 +225,11 @@ jobs:
           import os
           from pathlib import Path
           import yaml
-
+  
           root = Path('.')
           resolved_variant = os.environ.get('RESOLVED_VARIANT', '').strip()
           input_synth = os.environ.get('INPUT_SYNTH_STRATEGY', '').strip()
-
+  
           manifest = yaml.safe_load((root / 'manifest.yaml').read_text(encoding='utf-8')) or {}
           variant_path = None
           candidate = root / resolved_variant
@@ -247,23 +244,23 @@ jobs:
                       if path.is_dir() and (path / 'variant.yaml').exists():
                           variant_path = path
                           break
-
+  
           variant_override = ''
           if variant_path is not None:
               cfg = yaml.safe_load((variant_path / 'variant.yaml').read_text(encoding='utf-8')) or {}
               variant_override = str(((cfg.get('ll_policy') or {}).get('synth_strategy') or '')).strip()
-
+  
           if input_synth:
               label = f'{input_synth} (workflow override)'
           elif variant_override:
               label = f'{variant_override} (variant.yaml ll_policy.synth_strategy)'
           else:
               label = 'Default (not overridden)'
-
+  
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
               print(f'summary_synth_strategy={label}', file=f)
           PY
-
+  
       - name: Resolve sweep parameters
         id: sweep
         env:
@@ -279,7 +276,7 @@ jobs:
         run: |
           python - <<'PY'
           import os
-
+  
           min_clock = max(0.0, float(os.environ.get("INPUT_MIN_CLOCK_NS", "") or "0"))
           max_clock = float(os.environ.get("INPUT_MAX_CLOCK_NS_CAP", "") or "0")
           coarse_step = float(os.environ.get("INPUT_INITIAL_STEP_NS", "") or "20")
@@ -289,7 +286,7 @@ jobs:
           refine2 = float(os.environ.get("INPUT_REFINE2_STEP_NS", "") or "0.5")
           refine3 = float(os.environ.get("INPUT_REFINE3_STEP_NS", "") or "0.125")
           tolerance = float(os.environ.get("INPUT_TOLERANCE_NS", "") or "0.125")
-
+  
           if max_clock <= 0:
               raise SystemExit("max_ns_cap in variant.yaml must be > 0")
           if max_clock < min_clock:
@@ -306,12 +303,12 @@ jobs:
               raise SystemExit("tolerance_ns must be > 0")
           if tolerance > refine3:
               raise SystemExit("tolerance_ns should be <= refine3_step_ns for the final stage")
-
+  
           def fmt(v: float) -> str:
               if float(v).is_integer():
                   return str(int(v))
               return str(round(v, 6))
-
+  
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
               print(f"min_clock_ns={fmt(min_clock)}", file=f)
               print(f"max_clock_ns={fmt(max_clock)}", file=f)
@@ -323,7 +320,7 @@ jobs:
               print(f"refine3_step_ns={fmt(refine3)}", file=f)
               print(f"tolerance_ns={fmt(tolerance)}", file=f)
           PY
-
+  
       - name: Resolve coarse auto matrix
         id: coarse
         env:
@@ -332,15 +329,9 @@ jobs:
           COARSE_STEP_NS: ${{ steps.sweep.outputs.coarse_step_ns }}
           COARSE_STEPS: ${{ steps.sweep.outputs.coarse_steps }}
         run: |
-          COARSE_MATRIX_JSON="$(python tools/scripts/make_clock_matrix.py \
-            --start-clock-ns "${START_CLOCK_NS}" \
-            --min-clock-ns "${MIN_CLOCK_NS}" \
-            --step-ns "${COARSE_STEP_NS}" \
-            --coarse-steps "${COARSE_STEPS}")"
-
+          COARSE_MATRIX_JSON="$(python tools/scripts/make_clock_matrix.py             --start-clock-ns "${START_CLOCK_NS}"             --min-clock-ns "${MIN_CLOCK_NS}"             --step-ns "${COARSE_STEP_NS}"             --coarse-steps "${COARSE_STEPS}")"
           echo "coarse_matrix_json=${COARSE_MATRIX_JSON}" >> "$GITHUB_OUTPUT"
-          echo "${COARSE_MATRIX_JSON}"
-
+  
       - name: Resolve summary knob labels
         id: summary_knobs
         env:
@@ -356,51 +347,47 @@ jobs:
               *) echo "${1:-}" ;;
             esac
           }
-
+  
           {
             echo "antenna_repair=$(to_label "${INPUT_RUN_ANTENNA_REPAIR:-true}")"
             echo "heuristic_diode_insertion=$(to_label "${INPUT_RUN_HEURISTIC_DIODE_INSERTION:-true}")"
             echo "post_grt_design_repair=$(to_label "${INPUT_RUN_POST_GRT_DESIGN_REPAIR:-true}")"
             echo "post_grt_resizer_timing=$(to_label "${INPUT_RUN_POST_GRT_RESIZER_TIMING:-false}")"
           } >> "$GITHUB_OUTPUT"
-
+  
       - name: Write plan summary
         run: |
           {
             echo "## Plan"
             echo ""
-            echo "- Variant: \`${{ steps.resolve.outputs.resolved_variant }}\`"
-            echo "- Baseline clock_ns: \`${{ steps.start.outputs.start_clock_ns }}\`"
-            echo "- Coarse step: \`${{ steps.sweep.outputs.coarse_step_ns }} ns\`"
-            echo "- Initial Coarse Sweep: \`${{ steps.coarse.outputs.coarse_matrix_json }}\`"
-            echo "- Clock cap from variant.yaml: \`${{ steps.cap.outputs.max_clock_ns }} ns\`"
-            echo "- Mid refine stage: \`${{ steps.sweep.outputs.mid_refine_step_ns }} ns\`"
-            echo "- Refine stage 1: \`${{ steps.sweep.outputs.refine1_step_ns }} ns\`"
-            echo "- Refine stage 2: \`${{ steps.sweep.outputs.refine2_step_ns }} ns\`"
-            echo "- Refine stage 3: \`${{ steps.sweep.outputs.refine3_step_ns }} ns\`"
-            echo "- Tolerance: \`${{ steps.sweep.outputs.tolerance_ns }} ns\`"
-            echo "- Minimum Clock Floor: \`${{ steps.sweep.outputs.min_clock_ns }} ns\`"
-            echo "- Synthesis strategy: \`${{ steps.summary_synth.outputs.summary_synth_strategy }}\`"
-            echo "- Antenna repair: \`${{ steps.summary_knobs.outputs.antenna_repair }}\`"
-            echo "- Heuristic diode insertion: \`${{ steps.summary_knobs.outputs.heuristic_diode_insertion }}\`"
-            echo "- Post-GRT design repair: \`${{ steps.summary_knobs.outputs.post_grt_design_repair }}\`"
-            echo "- Post-GRT resizer timing: \`${{ steps.summary_knobs.outputs.post_grt_resizer_timing }}\`"
+            echo "- Variant: `${{ steps.resolve.outputs.resolved_variant }}`"
+            echo "- Baseline clock_ns: `${{ steps.start.outputs.start_clock_ns }}`"
+            echo "- Coarse step: `${{ steps.sweep.outputs.coarse_step_ns }} ns`"
+            echo "- Initial coarse sweep: `${{ steps.coarse.outputs.coarse_matrix_json }}`"
+            echo "- Clock cap from variant.yaml: `${{ steps.cap.outputs.max_clock_ns }} ns`"
+            echo "- Mid refine stage: `${{ steps.sweep.outputs.mid_refine_step_ns }} ns`"
+            echo "- Refine stage 1: `${{ steps.sweep.outputs.refine1_step_ns }} ns`"
+            echo "- Refine stage 2: `${{ steps.sweep.outputs.refine2_step_ns }} ns`"
+            echo "- Refine stage 3: `${{ steps.sweep.outputs.refine3_step_ns }} ns`"
+            echo "- Tolerance: `${{ steps.sweep.outputs.tolerance_ns }} ns`"
+            echo "- Minimum clock floor: `${{ steps.sweep.outputs.min_clock_ns }} ns`"
+            echo "- Synthesis strategy: `${{ steps.summary_synth.outputs.summary_synth_strategy }}`"
+            echo "- Antenna repair: `${{ steps.summary_knobs.outputs.antenna_repair }}`"
+            echo "- Heuristic diode insertion: `${{ steps.summary_knobs.outputs.heuristic_diode_insertion }}`"
+            echo "- Post-GRT design repair: `${{ steps.summary_knobs.outputs.post_grt_design_repair }}`"
+            echo "- Post-GRT resizer timing: `${{ steps.summary_knobs.outputs.post_grt_resizer_timing }}`"
           } >> "$GITHUB_STEP_SUMMARY"
-
-
   coarse-sweep:
     name: Coarse Sweep (${{ matrix.clock_ns }} ns)
     needs:
       - plan
-      - plan
-    if: ${{ needs.plan.outputs.matrix_json != '[]' }}
+    if: ${{ needs.plan.outputs.coarse_matrix_json != "" && needs.plan.outputs.coarse_matrix_json != "[]" }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
-        clock_ns: ${{ fromJson(needs.plan.outputs.matrix_json) }}
-
+        clock_ns: ${{ fromJson(needs.plan.outputs.coarse_matrix_json) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -467,45 +454,13 @@ jobs:
 
       - name: Enrich Coarse Sweep artifact bundle
         if: always()
-        shell: bash
         env:
           VARIANT: ${{ needs.plan.outputs.resolved_variant }}
+          CLOCK_NS: ${{ matrix.clock_ns }}
         run: |
-          set -euo pipefail
-          BASE_DIR="ci_out/${VARIANT}"
-          ATTEMPT_DIR="$(find "${BASE_DIR}" -maxdepth 1 -mindepth 1 -type d -name 'clk_*ns_*' | head -n 1 || true)"
-
-          if [ -z "${ATTEMPT_DIR}" ]; then
-            echo "No attempt directory found under ${BASE_DIR}"
-            exit 0
-          fi
-
-          RUN_DIR=""
-          if [ -f "${ATTEMPT_DIR}/run_dir_used.txt" ]; then
-            RUN_DIR="$(head -n 1 "${ATTEMPT_DIR}/run_dir_used.txt" | tr -d '\r' || true)"
-          fi
-
-          if [ -n "${RUN_DIR}" ] && [ -d "${RUN_DIR}" ]; then
-            mkdir -p "${ATTEMPT_DIR}/openlane_run"
-            cp -rv "${RUN_DIR}/." "${ATTEMPT_DIR}/openlane_run/" || true
-
-            if [ -f "${RUN_DIR}/final/metrics.json" ] && [ ! -f "${ATTEMPT_DIR}/metrics_raw.json" ]; then
-              cp -v "${RUN_DIR}/final/metrics.json" "${ATTEMPT_DIR}/metrics_raw.json" || true
-            fi
-
-            if [ -d "${RUN_DIR}/final/gds" ]; then
-              mkdir -p "${ATTEMPT_DIR}/final/gds"
-              cp -rv "${RUN_DIR}/final/gds/." "${ATTEMPT_DIR}/final/gds/" || true
-            fi
-
-            python tools/scripts/render_gds.py --run-root "${RUN_DIR}" --out "${ATTEMPT_DIR}/renders" || true
-          fi
-
-          python tools/scripts/build_layout_viewer.py --out-dir "${ATTEMPT_DIR}" || true
-
-          if [ -f "${ATTEMPT_DIR}/viewer.html" ] && [ ! -f "${ATTEMPT_DIR}/index.html" ]; then
-            cp -v "${ATTEMPT_DIR}/viewer.html" "${ATTEMPT_DIR}/index.html"
-          fi
+          python tools/scripts/enrich_attempt_artifact.py \
+            --base-dir "ci_out/${VARIANT}" \
+            --clock-ns "${CLOCK_NS}"
 
       - name: Upload Coarse Sweep artifacts
         if: always()
@@ -515,7 +470,6 @@ jobs:
           path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
           if-no-files-found: error
           include-hidden-files: true
-
   select-mid-refine-1:
     name: Select Mid Refine 1
     needs:
@@ -525,6 +479,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix_json: ${{ steps.select.outputs.matrix_json }}
+      reason: ${{ steps.select.outputs.reason }}
 
     steps:
       - uses: actions/checkout@v4
@@ -543,27 +498,35 @@ jobs:
         run: |
           python tools/scripts/select_refine_matrix.py \
             --artifacts-root downloaded_artifacts \
-            --expand-step-ns "${{ needs.plan.outputs.coarse_step_ns }}" \
-            --refine-step-ns "${{ needs.plan.outputs.mid_refine_step_ns }}" \
+            --mode extend \
+            --step-ns "${{ needs.plan.outputs.mid_refine_step_ns }}" \
             --min-clock-ns "${{ needs.plan.outputs.min_clock_ns }}" \
             --max-clock-ns "${{ needs.plan.outputs.max_clock_ns }}" \
             --tolerance-ns "${{ needs.plan.outputs.tolerance_ns }}" \
-            --batch-size 4 \
+            --batch-size 8 \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Append selection summary
+        if: always()
+        run: |
+          {
+            echo "## Select Mid Refine 1"
+            echo ""
+            echo "- Selected matrix: `${{ steps.select.outputs.matrix_json }}`"
+            echo "- Remarks: `${{ steps.select.outputs.reason }}`"
+          } >> "$GITHUB_STEP_SUMMARY"
   mid-refine-sweep-1:
     name: Mid Refine Sweep 1 (${{ matrix.clock_ns }} ns)
     needs:
       - plan
       - select-mid-refine-1
-    if: ${{ needs.select-mid-refine-1.outputs.matrix_json != '[]' }}
+    if: ${{ needs.select-mid-refine-1.outputs.matrix_json != "" && needs.select-mid-refine-1.outputs.matrix_json != "[]" }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
         clock_ns: ${{ fromJson(needs.select-mid-refine-1.outputs.matrix_json) }}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -630,45 +593,13 @@ jobs:
 
       - name: Enrich Mid Refine Sweep 1 artifact bundle
         if: always()
-        shell: bash
         env:
           VARIANT: ${{ needs.plan.outputs.resolved_variant }}
+          CLOCK_NS: ${{ matrix.clock_ns }}
         run: |
-          set -euo pipefail
-          BASE_DIR="ci_out/${VARIANT}"
-          ATTEMPT_DIR="$(find "${BASE_DIR}" -maxdepth 1 -mindepth 1 -type d -name 'clk_*ns_*' | head -n 1 || true)"
-
-          if [ -z "${ATTEMPT_DIR}" ]; then
-            echo "No attempt directory found under ${BASE_DIR}"
-            exit 0
-          fi
-
-          RUN_DIR=""
-          if [ -f "${ATTEMPT_DIR}/run_dir_used.txt" ]; then
-            RUN_DIR="$(head -n 1 "${ATTEMPT_DIR}/run_dir_used.txt" | tr -d '\r' || true)"
-          fi
-
-          if [ -n "${RUN_DIR}" ] && [ -d "${RUN_DIR}" ]; then
-            mkdir -p "${ATTEMPT_DIR}/openlane_run"
-            cp -rv "${RUN_DIR}/." "${ATTEMPT_DIR}/openlane_run/" || true
-
-            if [ -f "${RUN_DIR}/final/metrics.json" ] && [ ! -f "${ATTEMPT_DIR}/metrics_raw.json" ]; then
-              cp -v "${RUN_DIR}/final/metrics.json" "${ATTEMPT_DIR}/metrics_raw.json" || true
-            fi
-
-            if [ -d "${RUN_DIR}/final/gds" ]; then
-              mkdir -p "${ATTEMPT_DIR}/final/gds"
-              cp -rv "${RUN_DIR}/final/gds/." "${ATTEMPT_DIR}/final/gds/" || true
-            fi
-
-            python tools/scripts/render_gds.py --run-root "${RUN_DIR}" --out "${ATTEMPT_DIR}/renders" || true
-          fi
-
-          python tools/scripts/build_layout_viewer.py --out-dir "${ATTEMPT_DIR}" || true
-
-          if [ -f "${ATTEMPT_DIR}/viewer.html" ] && [ ! -f "${ATTEMPT_DIR}/index.html" ]; then
-            cp -v "${ATTEMPT_DIR}/viewer.html" "${ATTEMPT_DIR}/index.html"
-          fi
+          python tools/scripts/enrich_attempt_artifact.py \
+            --base-dir "ci_out/${VARIANT}" \
+            --clock-ns "${CLOCK_NS}"
 
       - name: Upload Mid Refine Sweep 1 artifacts
         if: always()
@@ -678,17 +609,17 @@ jobs:
           path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
           if-no-files-found: error
           include-hidden-files: true
-
   select-mid-refine-2:
     name: Select Mid Refine 2
     needs:
       - plan
       - coarse-sweep
       - mid-refine-sweep-1
-    if: ${{ always() && needs.mid-refine-sweep-1.result != 'skipped' }}
+    if: ${{ always() && needs.coarse-sweep.result != 'skipped' }}
     runs-on: ubuntu-latest
     outputs:
       matrix_json: ${{ steps.select.outputs.matrix_json }}
+      reason: ${{ steps.select.outputs.reason }}
 
     steps:
       - uses: actions/checkout@v4
@@ -707,27 +638,35 @@ jobs:
         run: |
           python tools/scripts/select_refine_matrix.py \
             --artifacts-root downloaded_artifacts \
-            --expand-step-ns "${{ needs.plan.outputs.mid_refine_step_ns }}" \
-            --refine-step-ns "${{ needs.plan.outputs.mid_refine_step_ns }}" \
+            --mode extend \
+            --step-ns "${{ needs.plan.outputs.mid_refine_step_ns }}" \
             --min-clock-ns "${{ needs.plan.outputs.min_clock_ns }}" \
             --max-clock-ns "${{ needs.plan.outputs.max_clock_ns }}" \
             --tolerance-ns "${{ needs.plan.outputs.tolerance_ns }}" \
-            --batch-size 4 \
+            --batch-size 8 \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Append selection summary
+        if: always()
+        run: |
+          {
+            echo "## Select Mid Refine 2"
+            echo ""
+            echo "- Selected matrix: `${{ steps.select.outputs.matrix_json }}`"
+            echo "- Remarks: `${{ steps.select.outputs.reason }}`"
+          } >> "$GITHUB_STEP_SUMMARY"
   mid-refine-sweep-2:
     name: Mid Refine Sweep 2 (${{ matrix.clock_ns }} ns)
     needs:
       - plan
       - select-mid-refine-2
-    if: ${{ needs.select-mid-refine-2.outputs.matrix_json != '[]' }}
+    if: ${{ needs.select-mid-refine-2.outputs.matrix_json != "" && needs.select-mid-refine-2.outputs.matrix_json != "[]" }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
         clock_ns: ${{ fromJson(needs.select-mid-refine-2.outputs.matrix_json) }}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -794,45 +733,13 @@ jobs:
 
       - name: Enrich Mid Refine Sweep 2 artifact bundle
         if: always()
-        shell: bash
         env:
           VARIANT: ${{ needs.plan.outputs.resolved_variant }}
+          CLOCK_NS: ${{ matrix.clock_ns }}
         run: |
-          set -euo pipefail
-          BASE_DIR="ci_out/${VARIANT}"
-          ATTEMPT_DIR="$(find "${BASE_DIR}" -maxdepth 1 -mindepth 1 -type d -name 'clk_*ns_*' | head -n 1 || true)"
-
-          if [ -z "${ATTEMPT_DIR}" ]; then
-            echo "No attempt directory found under ${BASE_DIR}"
-            exit 0
-          fi
-
-          RUN_DIR=""
-          if [ -f "${ATTEMPT_DIR}/run_dir_used.txt" ]; then
-            RUN_DIR="$(head -n 1 "${ATTEMPT_DIR}/run_dir_used.txt" | tr -d '\r' || true)"
-          fi
-
-          if [ -n "${RUN_DIR}" ] && [ -d "${RUN_DIR}" ]; then
-            mkdir -p "${ATTEMPT_DIR}/openlane_run"
-            cp -rv "${RUN_DIR}/." "${ATTEMPT_DIR}/openlane_run/" || true
-
-            if [ -f "${RUN_DIR}/final/metrics.json" ] && [ ! -f "${ATTEMPT_DIR}/metrics_raw.json" ]; then
-              cp -v "${RUN_DIR}/final/metrics.json" "${ATTEMPT_DIR}/metrics_raw.json" || true
-            fi
-
-            if [ -d "${RUN_DIR}/final/gds" ]; then
-              mkdir -p "${ATTEMPT_DIR}/final/gds"
-              cp -rv "${RUN_DIR}/final/gds/." "${ATTEMPT_DIR}/final/gds/" || true
-            fi
-
-            python tools/scripts/render_gds.py --run-root "${RUN_DIR}" --out "${ATTEMPT_DIR}/renders" || true
-          fi
-
-          python tools/scripts/build_layout_viewer.py --out-dir "${ATTEMPT_DIR}" || true
-
-          if [ -f "${ATTEMPT_DIR}/viewer.html" ] && [ ! -f "${ATTEMPT_DIR}/index.html" ]; then
-            cp -v "${ATTEMPT_DIR}/viewer.html" "${ATTEMPT_DIR}/index.html"
-          fi
+          python tools/scripts/enrich_attempt_artifact.py \
+            --base-dir "ci_out/${VARIANT}" \
+            --clock-ns "${CLOCK_NS}"
 
       - name: Upload Mid Refine Sweep 2 artifacts
         if: always()
@@ -842,7 +749,6 @@ jobs:
           path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
           if-no-files-found: error
           include-hidden-files: true
-
   select-refine-1:
     name: Select Refine 1
     needs:
@@ -850,10 +756,11 @@ jobs:
       - coarse-sweep
       - mid-refine-sweep-1
       - mid-refine-sweep-2
-    if: ${{ always() && needs.mid-refine-sweep-2.result != 'skipped' }}
+    if: ${{ always() && needs.coarse-sweep.result != 'skipped' }}
     runs-on: ubuntu-latest
     outputs:
       matrix_json: ${{ steps.select.outputs.matrix_json }}
+      reason: ${{ steps.select.outputs.reason }}
 
     steps:
       - uses: actions/checkout@v4
@@ -872,27 +779,35 @@ jobs:
         run: |
           python tools/scripts/select_refine_matrix.py \
             --artifacts-root downloaded_artifacts \
-            --expand-step-ns "${{ needs.plan.outputs.mid_refine_step_ns }}" \
-            --refine-step-ns "${{ needs.plan.outputs.refine1_step_ns }}" \
+            --mode refine \
+            --step-ns "${{ needs.plan.outputs.refine1_step_ns }}" \
             --min-clock-ns "${{ needs.plan.outputs.min_clock_ns }}" \
             --max-clock-ns "${{ needs.plan.outputs.max_clock_ns }}" \
             --tolerance-ns "${{ needs.plan.outputs.tolerance_ns }}" \
-            --batch-size 6 \
+            --batch-size 4 \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Append selection summary
+        if: always()
+        run: |
+          {
+            echo "## Select Refine 1"
+            echo ""
+            echo "- Selected matrix: `${{ steps.select.outputs.matrix_json }}`"
+            echo "- Remarks: `${{ steps.select.outputs.reason }}`"
+          } >> "$GITHUB_STEP_SUMMARY"
   refine-sweep-1:
     name: Refine Sweep 1 (${{ matrix.clock_ns }} ns)
     needs:
       - plan
       - select-refine-1
-    if: ${{ needs.select-refine-1.outputs.matrix_json != '[]' }}
+    if: ${{ needs.select-refine-1.outputs.matrix_json != "" && needs.select-refine-1.outputs.matrix_json != "[]" }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
         clock_ns: ${{ fromJson(needs.select-refine-1.outputs.matrix_json) }}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -959,45 +874,13 @@ jobs:
 
       - name: Enrich Refine Sweep 1 artifact bundle
         if: always()
-        shell: bash
         env:
           VARIANT: ${{ needs.plan.outputs.resolved_variant }}
+          CLOCK_NS: ${{ matrix.clock_ns }}
         run: |
-          set -euo pipefail
-          BASE_DIR="ci_out/${VARIANT}"
-          ATTEMPT_DIR="$(find "${BASE_DIR}" -maxdepth 1 -mindepth 1 -type d -name 'clk_*ns_*' | head -n 1 || true)"
-
-          if [ -z "${ATTEMPT_DIR}" ]; then
-            echo "No attempt directory found under ${BASE_DIR}"
-            exit 0
-          fi
-
-          RUN_DIR=""
-          if [ -f "${ATTEMPT_DIR}/run_dir_used.txt" ]; then
-            RUN_DIR="$(head -n 1 "${ATTEMPT_DIR}/run_dir_used.txt" | tr -d '\r' || true)"
-          fi
-
-          if [ -n "${RUN_DIR}" ] && [ -d "${RUN_DIR}" ]; then
-            mkdir -p "${ATTEMPT_DIR}/openlane_run"
-            cp -rv "${RUN_DIR}/." "${ATTEMPT_DIR}/openlane_run/" || true
-
-            if [ -f "${RUN_DIR}/final/metrics.json" ] && [ ! -f "${ATTEMPT_DIR}/metrics_raw.json" ]; then
-              cp -v "${RUN_DIR}/final/metrics.json" "${ATTEMPT_DIR}/metrics_raw.json" || true
-            fi
-
-            if [ -d "${RUN_DIR}/final/gds" ]; then
-              mkdir -p "${ATTEMPT_DIR}/final/gds"
-              cp -rv "${RUN_DIR}/final/gds/." "${ATTEMPT_DIR}/final/gds/" || true
-            fi
-
-            python tools/scripts/render_gds.py --run-root "${RUN_DIR}" --out "${ATTEMPT_DIR}/renders" || true
-          fi
-
-          python tools/scripts/build_layout_viewer.py --out-dir "${ATTEMPT_DIR}" || true
-
-          if [ -f "${ATTEMPT_DIR}/viewer.html" ] && [ ! -f "${ATTEMPT_DIR}/index.html" ]; then
-            cp -v "${ATTEMPT_DIR}/viewer.html" "${ATTEMPT_DIR}/index.html"
-          fi
+          python tools/scripts/enrich_attempt_artifact.py \
+            --base-dir "ci_out/${VARIANT}" \
+            --clock-ns "${CLOCK_NS}"
 
       - name: Upload Refine Sweep 1 artifacts
         if: always()
@@ -1007,7 +890,6 @@ jobs:
           path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
           if-no-files-found: error
           include-hidden-files: true
-
   select-refine-1-ext:
     name: Select Refine 1 Extension
     needs:
@@ -1016,10 +898,11 @@ jobs:
       - mid-refine-sweep-1
       - mid-refine-sweep-2
       - refine-sweep-1
-    if: ${{ always() && needs.refine-sweep-1.result != 'skipped' }}
+    if: ${{ always() && needs.coarse-sweep.result != 'skipped' }}
     runs-on: ubuntu-latest
     outputs:
       matrix_json: ${{ steps.select.outputs.matrix_json }}
+      reason: ${{ steps.select.outputs.reason }}
 
     steps:
       - uses: actions/checkout@v4
@@ -1038,27 +921,35 @@ jobs:
         run: |
           python tools/scripts/select_refine_matrix.py \
             --artifacts-root downloaded_artifacts \
-            --expand-step-ns "${{ needs.plan.outputs.refine1_step_ns }}" \
-            --refine-step-ns "${{ needs.plan.outputs.refine1_step_ns }}" \
+            --mode extend \
+            --step-ns "${{ needs.plan.outputs.refine1_step_ns }}" \
             --min-clock-ns "${{ needs.plan.outputs.min_clock_ns }}" \
             --max-clock-ns "${{ needs.plan.outputs.max_clock_ns }}" \
             --tolerance-ns "${{ needs.plan.outputs.tolerance_ns }}" \
-            --batch-size 6 \
+            --batch-size 8 \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Append selection summary
+        if: always()
+        run: |
+          {
+            echo "## Select Refine 1 Extension"
+            echo ""
+            echo "- Selected matrix: `${{ steps.select.outputs.matrix_json }}`"
+            echo "- Remarks: `${{ steps.select.outputs.reason }}`"
+          } >> "$GITHUB_STEP_SUMMARY"
   refine-sweep-1-ext:
     name: Refine Sweep 1 Extension (${{ matrix.clock_ns }} ns)
     needs:
       - plan
       - select-refine-1-ext
-    if: ${{ needs.select-refine-1-ext.outputs.matrix_json != '[]' }}
+    if: ${{ needs.select-refine-1-ext.outputs.matrix_json != "" && needs.select-refine-1-ext.outputs.matrix_json != "[]" }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
         clock_ns: ${{ fromJson(needs.select-refine-1-ext.outputs.matrix_json) }}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -1125,45 +1016,13 @@ jobs:
 
       - name: Enrich Refine Sweep 1 Extension artifact bundle
         if: always()
-        shell: bash
         env:
           VARIANT: ${{ needs.plan.outputs.resolved_variant }}
+          CLOCK_NS: ${{ matrix.clock_ns }}
         run: |
-          set -euo pipefail
-          BASE_DIR="ci_out/${VARIANT}"
-          ATTEMPT_DIR="$(find "${BASE_DIR}" -maxdepth 1 -mindepth 1 -type d -name 'clk_*ns_*' | head -n 1 || true)"
-
-          if [ -z "${ATTEMPT_DIR}" ]; then
-            echo "No attempt directory found under ${BASE_DIR}"
-            exit 0
-          fi
-
-          RUN_DIR=""
-          if [ -f "${ATTEMPT_DIR}/run_dir_used.txt" ]; then
-            RUN_DIR="$(head -n 1 "${ATTEMPT_DIR}/run_dir_used.txt" | tr -d '\r' || true)"
-          fi
-
-          if [ -n "${RUN_DIR}" ] && [ -d "${RUN_DIR}" ]; then
-            mkdir -p "${ATTEMPT_DIR}/openlane_run"
-            cp -rv "${RUN_DIR}/." "${ATTEMPT_DIR}/openlane_run/" || true
-
-            if [ -f "${RUN_DIR}/final/metrics.json" ] && [ ! -f "${ATTEMPT_DIR}/metrics_raw.json" ]; then
-              cp -v "${RUN_DIR}/final/metrics.json" "${ATTEMPT_DIR}/metrics_raw.json" || true
-            fi
-
-            if [ -d "${RUN_DIR}/final/gds" ]; then
-              mkdir -p "${ATTEMPT_DIR}/final/gds"
-              cp -rv "${RUN_DIR}/final/gds/." "${ATTEMPT_DIR}/final/gds/" || true
-            fi
-
-            python tools/scripts/render_gds.py --run-root "${RUN_DIR}" --out "${ATTEMPT_DIR}/renders" || true
-          fi
-
-          python tools/scripts/build_layout_viewer.py --out-dir "${ATTEMPT_DIR}" || true
-
-          if [ -f "${ATTEMPT_DIR}/viewer.html" ] && [ ! -f "${ATTEMPT_DIR}/index.html" ]; then
-            cp -v "${ATTEMPT_DIR}/viewer.html" "${ATTEMPT_DIR}/index.html"
-          fi
+          python tools/scripts/enrich_attempt_artifact.py \
+            --base-dir "ci_out/${VARIANT}" \
+            --clock-ns "${CLOCK_NS}"
 
       - name: Upload Refine Sweep 1 Extension artifacts
         if: always()
@@ -1173,7 +1032,6 @@ jobs:
           path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
           if-no-files-found: error
           include-hidden-files: true
-
   select-refine-2:
     name: Select Refine 2
     needs:
@@ -1183,10 +1041,11 @@ jobs:
       - mid-refine-sweep-2
       - refine-sweep-1
       - refine-sweep-1-ext
-    if: ${{ always() && needs.refine-sweep-1-ext.result != 'skipped' }}
+    if: ${{ always() && needs.coarse-sweep.result != 'skipped' }}
     runs-on: ubuntu-latest
     outputs:
       matrix_json: ${{ steps.select.outputs.matrix_json }}
+      reason: ${{ steps.select.outputs.reason }}
 
     steps:
       - uses: actions/checkout@v4
@@ -1205,27 +1064,35 @@ jobs:
         run: |
           python tools/scripts/select_refine_matrix.py \
             --artifacts-root downloaded_artifacts \
-            --expand-step-ns "${{ needs.plan.outputs.refine1_step_ns }}" \
-            --refine-step-ns "${{ needs.plan.outputs.refine2_step_ns }}" \
+            --mode refine \
+            --step-ns "${{ needs.plan.outputs.refine2_step_ns }}" \
             --min-clock-ns "${{ needs.plan.outputs.min_clock_ns }}" \
             --max-clock-ns "${{ needs.plan.outputs.max_clock_ns }}" \
             --tolerance-ns "${{ needs.plan.outputs.tolerance_ns }}" \
-            --batch-size 8 \
+            --batch-size 4 \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Append selection summary
+        if: always()
+        run: |
+          {
+            echo "## Select Refine 2"
+            echo ""
+            echo "- Selected matrix: `${{ steps.select.outputs.matrix_json }}`"
+            echo "- Remarks: `${{ steps.select.outputs.reason }}`"
+          } >> "$GITHUB_STEP_SUMMARY"
   refine-sweep-2:
     name: Refine Sweep 2 (${{ matrix.clock_ns }} ns)
     needs:
       - plan
       - select-refine-2
-    if: ${{ needs.select-refine-2.outputs.matrix_json != '[]' }}
+    if: ${{ needs.select-refine-2.outputs.matrix_json != "" && needs.select-refine-2.outputs.matrix_json != "[]" }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
         clock_ns: ${{ fromJson(needs.select-refine-2.outputs.matrix_json) }}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -1292,45 +1159,13 @@ jobs:
 
       - name: Enrich Refine Sweep 2 artifact bundle
         if: always()
-        shell: bash
         env:
           VARIANT: ${{ needs.plan.outputs.resolved_variant }}
+          CLOCK_NS: ${{ matrix.clock_ns }}
         run: |
-          set -euo pipefail
-          BASE_DIR="ci_out/${VARIANT}"
-          ATTEMPT_DIR="$(find "${BASE_DIR}" -maxdepth 1 -mindepth 1 -type d -name 'clk_*ns_*' | head -n 1 || true)"
-
-          if [ -z "${ATTEMPT_DIR}" ]; then
-            echo "No attempt directory found under ${BASE_DIR}"
-            exit 0
-          fi
-
-          RUN_DIR=""
-          if [ -f "${ATTEMPT_DIR}/run_dir_used.txt" ]; then
-            RUN_DIR="$(head -n 1 "${ATTEMPT_DIR}/run_dir_used.txt" | tr -d '\r' || true)"
-          fi
-
-          if [ -n "${RUN_DIR}" ] && [ -d "${RUN_DIR}" ]; then
-            mkdir -p "${ATTEMPT_DIR}/openlane_run"
-            cp -rv "${RUN_DIR}/." "${ATTEMPT_DIR}/openlane_run/" || true
-
-            if [ -f "${RUN_DIR}/final/metrics.json" ] && [ ! -f "${ATTEMPT_DIR}/metrics_raw.json" ]; then
-              cp -v "${RUN_DIR}/final/metrics.json" "${ATTEMPT_DIR}/metrics_raw.json" || true
-            fi
-
-            if [ -d "${RUN_DIR}/final/gds" ]; then
-              mkdir -p "${ATTEMPT_DIR}/final/gds"
-              cp -rv "${RUN_DIR}/final/gds/." "${ATTEMPT_DIR}/final/gds/" || true
-            fi
-
-            python tools/scripts/render_gds.py --run-root "${RUN_DIR}" --out "${ATTEMPT_DIR}/renders" || true
-          fi
-
-          python tools/scripts/build_layout_viewer.py --out-dir "${ATTEMPT_DIR}" || true
-
-          if [ -f "${ATTEMPT_DIR}/viewer.html" ] && [ ! -f "${ATTEMPT_DIR}/index.html" ]; then
-            cp -v "${ATTEMPT_DIR}/viewer.html" "${ATTEMPT_DIR}/index.html"
-          fi
+          python tools/scripts/enrich_attempt_artifact.py \
+            --base-dir "ci_out/${VARIANT}" \
+            --clock-ns "${CLOCK_NS}"
 
       - name: Upload Refine Sweep 2 artifacts
         if: always()
@@ -1340,7 +1175,6 @@ jobs:
           path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
           if-no-files-found: error
           include-hidden-files: true
-
   select-refine-2-ext:
     name: Select Refine 2 Extension
     needs:
@@ -1351,10 +1185,11 @@ jobs:
       - refine-sweep-1
       - refine-sweep-1-ext
       - refine-sweep-2
-    if: ${{ always() && needs.refine-sweep-2.result != 'skipped' }}
+    if: ${{ always() && needs.coarse-sweep.result != 'skipped' }}
     runs-on: ubuntu-latest
     outputs:
       matrix_json: ${{ steps.select.outputs.matrix_json }}
+      reason: ${{ steps.select.outputs.reason }}
 
     steps:
       - uses: actions/checkout@v4
@@ -1373,27 +1208,35 @@ jobs:
         run: |
           python tools/scripts/select_refine_matrix.py \
             --artifacts-root downloaded_artifacts \
-            --expand-step-ns "${{ needs.plan.outputs.refine2_step_ns }}" \
-            --refine-step-ns "${{ needs.plan.outputs.refine2_step_ns }}" \
+            --mode extend \
+            --step-ns "${{ needs.plan.outputs.refine2_step_ns }}" \
             --min-clock-ns "${{ needs.plan.outputs.min_clock_ns }}" \
             --max-clock-ns "${{ needs.plan.outputs.max_clock_ns }}" \
             --tolerance-ns "${{ needs.plan.outputs.tolerance_ns }}" \
             --batch-size 8 \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Append selection summary
+        if: always()
+        run: |
+          {
+            echo "## Select Refine 2 Extension"
+            echo ""
+            echo "- Selected matrix: `${{ steps.select.outputs.matrix_json }}`"
+            echo "- Remarks: `${{ steps.select.outputs.reason }}`"
+          } >> "$GITHUB_STEP_SUMMARY"
   refine-sweep-2-ext:
     name: Refine Sweep 2 Extension (${{ matrix.clock_ns }} ns)
     needs:
       - plan
       - select-refine-2-ext
-    if: ${{ needs.select-refine-2-ext.outputs.matrix_json != '[]' }}
+    if: ${{ needs.select-refine-2-ext.outputs.matrix_json != "" && needs.select-refine-2-ext.outputs.matrix_json != "[]" }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
         clock_ns: ${{ fromJson(needs.select-refine-2-ext.outputs.matrix_json) }}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -1460,45 +1303,13 @@ jobs:
 
       - name: Enrich Refine Sweep 2 Extension artifact bundle
         if: always()
-        shell: bash
         env:
           VARIANT: ${{ needs.plan.outputs.resolved_variant }}
+          CLOCK_NS: ${{ matrix.clock_ns }}
         run: |
-          set -euo pipefail
-          BASE_DIR="ci_out/${VARIANT}"
-          ATTEMPT_DIR="$(find "${BASE_DIR}" -maxdepth 1 -mindepth 1 -type d -name 'clk_*ns_*' | head -n 1 || true)"
-
-          if [ -z "${ATTEMPT_DIR}" ]; then
-            echo "No attempt directory found under ${BASE_DIR}"
-            exit 0
-          fi
-
-          RUN_DIR=""
-          if [ -f "${ATTEMPT_DIR}/run_dir_used.txt" ]; then
-            RUN_DIR="$(head -n 1 "${ATTEMPT_DIR}/run_dir_used.txt" | tr -d '\r' || true)"
-          fi
-
-          if [ -n "${RUN_DIR}" ] && [ -d "${RUN_DIR}" ]; then
-            mkdir -p "${ATTEMPT_DIR}/openlane_run"
-            cp -rv "${RUN_DIR}/." "${ATTEMPT_DIR}/openlane_run/" || true
-
-            if [ -f "${RUN_DIR}/final/metrics.json" ] && [ ! -f "${ATTEMPT_DIR}/metrics_raw.json" ]; then
-              cp -v "${RUN_DIR}/final/metrics.json" "${ATTEMPT_DIR}/metrics_raw.json" || true
-            fi
-
-            if [ -d "${RUN_DIR}/final/gds" ]; then
-              mkdir -p "${ATTEMPT_DIR}/final/gds"
-              cp -rv "${RUN_DIR}/final/gds/." "${ATTEMPT_DIR}/final/gds/" || true
-            fi
-
-            python tools/scripts/render_gds.py --run-root "${RUN_DIR}" --out "${ATTEMPT_DIR}/renders" || true
-          fi
-
-          python tools/scripts/build_layout_viewer.py --out-dir "${ATTEMPT_DIR}" || true
-
-          if [ -f "${ATTEMPT_DIR}/viewer.html" ] && [ ! -f "${ATTEMPT_DIR}/index.html" ]; then
-            cp -v "${ATTEMPT_DIR}/viewer.html" "${ATTEMPT_DIR}/index.html"
-          fi
+          python tools/scripts/enrich_attempt_artifact.py \
+            --base-dir "ci_out/${VARIANT}" \
+            --clock-ns "${CLOCK_NS}"
 
       - name: Upload Refine Sweep 2 Extension artifacts
         if: always()
@@ -1508,7 +1319,6 @@ jobs:
           path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
           if-no-files-found: error
           include-hidden-files: true
-
   select-refine-3:
     name: Select Refine 3
     needs:
@@ -1520,10 +1330,11 @@ jobs:
       - refine-sweep-1-ext
       - refine-sweep-2
       - refine-sweep-2-ext
-    if: ${{ always() && needs.refine-sweep-2-ext.result != 'skipped' }}
+    if: ${{ always() && needs.coarse-sweep.result != 'skipped' }}
     runs-on: ubuntu-latest
     outputs:
       matrix_json: ${{ steps.select.outputs.matrix_json }}
+      reason: ${{ steps.select.outputs.reason }}
 
     steps:
       - uses: actions/checkout@v4
@@ -1542,27 +1353,35 @@ jobs:
         run: |
           python tools/scripts/select_refine_matrix.py \
             --artifacts-root downloaded_artifacts \
-            --expand-step-ns "${{ needs.plan.outputs.refine2_step_ns }}" \
-            --refine-step-ns "${{ needs.plan.outputs.refine3_step_ns }}" \
+            --mode refine \
+            --step-ns "${{ needs.plan.outputs.refine3_step_ns }}" \
             --min-clock-ns "${{ needs.plan.outputs.min_clock_ns }}" \
             --max-clock-ns "${{ needs.plan.outputs.max_clock_ns }}" \
             --tolerance-ns "${{ needs.plan.outputs.tolerance_ns }}" \
-            --batch-size 10 \
+            --batch-size 4 \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Append selection summary
+        if: always()
+        run: |
+          {
+            echo "## Select Refine 3"
+            echo ""
+            echo "- Selected matrix: `${{ steps.select.outputs.matrix_json }}`"
+            echo "- Remarks: `${{ steps.select.outputs.reason }}`"
+          } >> "$GITHUB_STEP_SUMMARY"
   refine-sweep-3:
     name: Refine Sweep 3 (${{ matrix.clock_ns }} ns)
     needs:
       - plan
       - select-refine-3
-    if: ${{ needs.select-refine-3.outputs.matrix_json != '[]' }}
+    if: ${{ needs.select-refine-3.outputs.matrix_json != "" && needs.select-refine-3.outputs.matrix_json != "[]" }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
         clock_ns: ${{ fromJson(needs.select-refine-3.outputs.matrix_json) }}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -1629,45 +1448,13 @@ jobs:
 
       - name: Enrich Refine Sweep 3 artifact bundle
         if: always()
-        shell: bash
         env:
           VARIANT: ${{ needs.plan.outputs.resolved_variant }}
+          CLOCK_NS: ${{ matrix.clock_ns }}
         run: |
-          set -euo pipefail
-          BASE_DIR="ci_out/${VARIANT}"
-          ATTEMPT_DIR="$(find "${BASE_DIR}" -maxdepth 1 -mindepth 1 -type d -name 'clk_*ns_*' | head -n 1 || true)"
-
-          if [ -z "${ATTEMPT_DIR}" ]; then
-            echo "No attempt directory found under ${BASE_DIR}"
-            exit 0
-          fi
-
-          RUN_DIR=""
-          if [ -f "${ATTEMPT_DIR}/run_dir_used.txt" ]; then
-            RUN_DIR="$(head -n 1 "${ATTEMPT_DIR}/run_dir_used.txt" | tr -d '\r' || true)"
-          fi
-
-          if [ -n "${RUN_DIR}" ] && [ -d "${RUN_DIR}" ]; then
-            mkdir -p "${ATTEMPT_DIR}/openlane_run"
-            cp -rv "${RUN_DIR}/." "${ATTEMPT_DIR}/openlane_run/" || true
-
-            if [ -f "${RUN_DIR}/final/metrics.json" ] && [ ! -f "${ATTEMPT_DIR}/metrics_raw.json" ]; then
-              cp -v "${RUN_DIR}/final/metrics.json" "${ATTEMPT_DIR}/metrics_raw.json" || true
-            fi
-
-            if [ -d "${RUN_DIR}/final/gds" ]; then
-              mkdir -p "${ATTEMPT_DIR}/final/gds"
-              cp -rv "${RUN_DIR}/final/gds/." "${ATTEMPT_DIR}/final/gds/" || true
-            fi
-
-            python tools/scripts/render_gds.py --run-root "${RUN_DIR}" --out "${ATTEMPT_DIR}/renders" || true
-          fi
-
-          python tools/scripts/build_layout_viewer.py --out-dir "${ATTEMPT_DIR}" || true
-
-          if [ -f "${ATTEMPT_DIR}/viewer.html" ] && [ ! -f "${ATTEMPT_DIR}/index.html" ]; then
-            cp -v "${ATTEMPT_DIR}/viewer.html" "${ATTEMPT_DIR}/index.html"
-          fi
+          python tools/scripts/enrich_attempt_artifact.py \
+            --base-dir "ci_out/${VARIANT}" \
+            --clock-ns "${CLOCK_NS}"
 
       - name: Upload Refine Sweep 3 artifacts
         if: always()
@@ -1677,7 +1464,6 @@ jobs:
           path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
           if-no-files-found: error
           include-hidden-files: true
-
   select-refine-3-ext:
     name: Select Refine 3 Extension
     needs:
@@ -1690,10 +1476,11 @@ jobs:
       - refine-sweep-2
       - refine-sweep-2-ext
       - refine-sweep-3
-    if: ${{ always() && needs.refine-sweep-3.result != 'skipped' }}
+    if: ${{ always() && needs.coarse-sweep.result != 'skipped' }}
     runs-on: ubuntu-latest
     outputs:
       matrix_json: ${{ steps.select.outputs.matrix_json }}
+      reason: ${{ steps.select.outputs.reason }}
 
     steps:
       - uses: actions/checkout@v4
@@ -1712,27 +1499,35 @@ jobs:
         run: |
           python tools/scripts/select_refine_matrix.py \
             --artifacts-root downloaded_artifacts \
-            --expand-step-ns "${{ needs.plan.outputs.refine3_step_ns }}" \
-            --refine-step-ns "${{ needs.plan.outputs.refine3_step_ns }}" \
+            --mode extend \
+            --step-ns "${{ needs.plan.outputs.refine3_step_ns }}" \
             --min-clock-ns "${{ needs.plan.outputs.min_clock_ns }}" \
             --max-clock-ns "${{ needs.plan.outputs.max_clock_ns }}" \
             --tolerance-ns "${{ needs.plan.outputs.tolerance_ns }}" \
-            --batch-size 10 \
+            --batch-size 8 \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Append selection summary
+        if: always()
+        run: |
+          {
+            echo "## Select Refine 3 Extension"
+            echo ""
+            echo "- Selected matrix: `${{ steps.select.outputs.matrix_json }}`"
+            echo "- Remarks: `${{ steps.select.outputs.reason }}`"
+          } >> "$GITHUB_STEP_SUMMARY"
   refine-sweep-3-ext:
     name: Refine Sweep 3 Extension (${{ matrix.clock_ns }} ns)
     needs:
       - plan
       - select-refine-3-ext
-    if: ${{ needs.select-refine-3-ext.outputs.matrix_json != '[]' }}
+    if: ${{ needs.select-refine-3-ext.outputs.matrix_json != "" && needs.select-refine-3-ext.outputs.matrix_json != "[]" }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
         clock_ns: ${{ fromJson(needs.select-refine-3-ext.outputs.matrix_json) }}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -1799,45 +1594,13 @@ jobs:
 
       - name: Enrich Refine Sweep 3 Extension artifact bundle
         if: always()
-        shell: bash
         env:
           VARIANT: ${{ needs.plan.outputs.resolved_variant }}
+          CLOCK_NS: ${{ matrix.clock_ns }}
         run: |
-          set -euo pipefail
-          BASE_DIR="ci_out/${VARIANT}"
-          ATTEMPT_DIR="$(find "${BASE_DIR}" -maxdepth 1 -mindepth 1 -type d -name 'clk_*ns_*' | head -n 1 || true)"
-
-          if [ -z "${ATTEMPT_DIR}" ]; then
-            echo "No attempt directory found under ${BASE_DIR}"
-            exit 0
-          fi
-
-          RUN_DIR=""
-          if [ -f "${ATTEMPT_DIR}/run_dir_used.txt" ]; then
-            RUN_DIR="$(head -n 1 "${ATTEMPT_DIR}/run_dir_used.txt" | tr -d '\r' || true)"
-          fi
-
-          if [ -n "${RUN_DIR}" ] && [ -d "${RUN_DIR}" ]; then
-            mkdir -p "${ATTEMPT_DIR}/openlane_run"
-            cp -rv "${RUN_DIR}/." "${ATTEMPT_DIR}/openlane_run/" || true
-
-            if [ -f "${RUN_DIR}/final/metrics.json" ] && [ ! -f "${ATTEMPT_DIR}/metrics_raw.json" ]; then
-              cp -v "${RUN_DIR}/final/metrics.json" "${ATTEMPT_DIR}/metrics_raw.json" || true
-            fi
-
-            if [ -d "${RUN_DIR}/final/gds" ]; then
-              mkdir -p "${ATTEMPT_DIR}/final/gds"
-              cp -rv "${RUN_DIR}/final/gds/." "${ATTEMPT_DIR}/final/gds/" || true
-            fi
-
-            python tools/scripts/render_gds.py --run-root "${RUN_DIR}" --out "${ATTEMPT_DIR}/renders" || true
-          fi
-
-          python tools/scripts/build_layout_viewer.py --out-dir "${ATTEMPT_DIR}" || true
-
-          if [ -f "${ATTEMPT_DIR}/viewer.html" ] && [ ! -f "${ATTEMPT_DIR}/index.html" ]; then
-            cp -v "${ATTEMPT_DIR}/viewer.html" "${ATTEMPT_DIR}/index.html"
-          fi
+          python tools/scripts/enrich_attempt_artifact.py \
+            --base-dir "ci_out/${VARIANT}" \
+            --clock-ns "${CLOCK_NS}"
 
       - name: Upload Refine Sweep 3 Extension artifacts
         if: always()
@@ -1847,7 +1610,6 @@ jobs:
           path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
           if-no-files-found: error
           include-hidden-files: true
-
   compare-runs:
     name: Compare Runs
     needs:
@@ -1863,45 +1625,45 @@ jobs:
       - refine-sweep-3-ext
     if: ${{ always() && needs.coarse-sweep.result != 'skipped' }}
     runs-on: ubuntu-latest
-
+  
     steps:
       - uses: actions/checkout@v4
-
+  
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
+  
       - name: Download all upstream artifacts
         uses: actions/download-artifact@v4
         with:
           path: downloaded_artifacts
-
+  
       - name: Show downloaded structure
         run: |
           find downloaded_artifacts -maxdepth 8 -type f | sort | sed -n '1,400p'
-
+  
       - name: Fail if no metrics were downloaded
         run: |
           COUNT="$(find downloaded_artifacts -type f -name metrics.csv | wc -l | tr -d ' ')"
           echo "Found ${COUNT} metrics.csv files"
           test "${COUNT}" != "0"
-
+  
       - name: Compare runs and build explorer
         run: |
           python tools/scripts/compare_runs.py             --artifacts-root downloaded_artifacts             --summary-md _compare_summary.md             --summary-csv _compare_summary.csv             --best-json _best_run.json             --best-bundle-dir best-layout-bundle             --site-dir _site             --repo-slug "${{ github.repository }}"             --run-id "${{ github.run_id }}"
-
+  
       - name: Validate explorer outputs
         run: |
           test -f _compare_summary.md
           test -f _best_run.json
           test -f _site/index.html
           find _site -maxdepth 4 -type f | sort | sed -n '1,300p'
-
+  
       - name: Append compare summary
         if: always()
         run: |
           cat _compare_summary.md >> "$GITHUB_STEP_SUMMARY"
-
+  
       - name: Upload compare summary
         if: always()
         uses: actions/upload-artifact@v4
@@ -1913,7 +1675,7 @@ jobs:
             _best_run.json
           if-no-files-found: error
           include-hidden-files: true
-
+  
       - name: Upload best-layout bundle
         if: always()
         uses: actions/upload-artifact@v4
@@ -1922,7 +1684,7 @@ jobs:
           path: best-layout-bundle/
           if-no-files-found: error
           include-hidden-files: true
-
+  
       - name: Upload run explorer site
         if: always()
         uses: actions/upload-artifact@v4
@@ -1931,7 +1693,7 @@ jobs:
           path: _site/
           if-no-files-found: error
           include-hidden-files: true
-
+  
   deploy-run-explorer:
     name: Deploy Run Explorer
     needs: compare-runs
@@ -1940,26 +1702,26 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-
+  
     steps:
       - name: Configure Pages
         uses: actions/configure-pages@v5
-
+  
       - name: Download run explorer artifact
         uses: actions/download-artifact@v4
         with:
           name: run-explorer-site
           path: _site
-
+  
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: _site
-
+  
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
+  
       - name: Workflow Summary
         run: |
           {
