@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import math
+import os
 import shutil
 import subprocess
 import time
@@ -21,11 +21,22 @@ def load_yaml(path: Path) -> Dict[str, Any]:
         return yaml.safe_load(f)
 
 
-def sh(cmd: List[str], cwd: Optional[Path] = None, env: Optional[Dict[str, str]] = None) -> None:
-    print(">", " ".join(cmd))
-    rc = subprocess.run(cmd, cwd=str(cwd) if cwd else None, env=env, check=False)
-    if rc.returncode != 0:
+def sh(
+    cmd: List[str],
+    cwd: Optional[Path] = None,
+    env: Optional[Dict[str, str]] = None,
+    check: bool = True,
+) -> int:
+    print(">", " ".join(str(x) for x in cmd), flush=True)
+    rc = subprocess.run(
+        cmd,
+        cwd=str(cwd) if cwd else None,
+        env=env,
+        check=False,
+    )
+    if check and rc.returncode != 0:
         raise SystemExit(rc.returncode)
+    return rc.returncode
 
 
 def resolve_variant(value: str) -> str:
@@ -33,11 +44,11 @@ def resolve_variant(value: str) -> str:
     experiments = manifest.get("experiments", [])
 
     if value:
-      for exp in experiments:
-        variant = exp.get("variant", "")
-        if variant.replace("/", "_") == value:
-            return value
-      return value
+        for exp in experiments:
+            variant = exp.get("variant", "")
+            if variant.replace("/", "_") == value:
+                return value
+        return value
 
     enabled = [exp.get("variant", "").replace("/", "_") for exp in experiments if exp.get("enabled", True)]
     if not enabled:
@@ -165,6 +176,7 @@ def write_history_files(out_root: Path, history: List[Dict[str, Any]]) -> None:
         "drc_errors",
         "lvs_errors",
         "antenna_violations",
+        "openlane_rc",
         "attempt_dir",
     ]
     with (out_root / "autoflow_history.csv").open("w", newline="", encoding="utf-8") as f:
@@ -176,15 +188,70 @@ def write_history_files(out_root: Path, history: List[Dict[str, Any]]) -> None:
     lines = []
     lines.append("## Autoflow attempts")
     lines.append("")
-    lines.append("| Attempt | Clock (ns) | Status | Setup WNS | Setup TNS | DRC | LVS | Antenna | Why |")
-    lines.append("|---:|---:|---|---:|---:|---:|---:|---:|---|")
+    lines.append("| Attempt | Clock (ns) | Status | Setup WNS | Setup TNS | DRC | LVS | Antenna | RC | Why |")
+    lines.append("|---:|---:|---|---:|---:|---:|---:|---:|---:|---|")
     for row in history:
         lines.append(
             f"| {row.get('attempt','')} | {row.get('clock_ns','')} | {row.get('status','')} | "
             f"{row.get('setup_wns_ns','')} | {row.get('setup_tns_ns','')} | {row.get('drc_errors','')} | "
-            f"{row.get('lvs_errors','')} | {row.get('antenna_violations','')} | {row.get('selection_reason','')} |"
+            f"{row.get('lvs_errors','')} | {row.get('antenna_violations','')} | {row.get('openlane_rc','')} | "
+            f"{row.get('selection_reason','')} |"
         )
     (out_root / "autoflow_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def midpoint(a: float, b: float, precision: int = 6) -> float:
+    return round((a + b) / 2.0, precision)
+
+
+def choose_next_clock(
+    *,
+    passed: bool,
+    current: float,
+    pass_bound: Optional[float],
+    fail_bound: Optional[float],
+    step: float,
+    min_clock_ns: float,
+    max_clock_ns: float,
+    tolerance_ns: float,
+) -> Tuple[Optional[float], float]:
+    """
+    Lower clock period is harder.
+    pass_bound = smallest known passing clock
+    fail_bound = largest known failing clock that is below/at the current search frontier
+    """
+
+    next_step = step
+    next_clock: Optional[float] = None
+
+    if passed:
+        if fail_bound is None:
+            next_clock = current - step
+        else:
+            interval = fail_bound - pass_bound
+            if interval <= tolerance_ns:
+                return None, next_step
+            next_clock = midpoint(pass_bound, fail_bound)
+            next_step = max(tolerance_ns, interval / 2.0)
+    else:
+        if pass_bound is None:
+            next_clock = current + step
+        else:
+            interval = fail_bound - pass_bound
+            if interval <= tolerance_ns:
+                return None, next_step
+            next_clock = midpoint(pass_bound, fail_bound)
+            next_step = max(tolerance_ns, interval / 2.0)
+
+    if next_clock is None:
+        return None, next_step
+
+    next_clock = max(min_clock_ns, min(max_clock_ns, next_clock))
+
+    if abs(next_clock - current) < 1e-9:
+        return None, next_step
+
+    return next_clock, next_step
 
 
 def main() -> None:
@@ -207,35 +274,39 @@ def main() -> None:
     args = ap.parse_args()
 
     safe_variant = resolve_variant(args.variant)
-    variant_path = safe_variant_to_path(safe_variant)
+    _variant_path = safe_variant_to_path(safe_variant)
+
     out_root = ROOT / args.out_root
     out_root.mkdir(parents=True, exist_ok=True)
 
-    summary_path_env = None
-    if "GITHUB_STEP_SUMMARY_PATH" in dict(**subprocess.os.environ):
-        summary_path_env = Path(subprocess.os.environ["GITHUB_STEP_SUMMARY_PATH"])
-    elif "GITHUB_STEP_SUMMARY" in dict(**subprocess.os.environ):
-        summary_path_env = Path(subprocess.os.environ["GITHUB_STEP_SUMMARY"])
+    summary_path_env: Optional[Path] = None
+    if os.environ.get("GITHUB_STEP_SUMMARY_PATH"):
+        summary_path_env = Path(os.environ["GITHUB_STEP_SUMMARY_PATH"])
+    elif os.environ.get("GITHUB_STEP_SUMMARY"):
+        summary_path_env = Path(os.environ["GITHUB_STEP_SUMMARY"])
 
     append_summary(summary_path_env, f"## Autoflow: {safe_variant}")
     append_summary(summary_path_env, "")
-    append_summary(summary_path_env, "| Attempt | Clock (ns) | Status | Setup WNS | Setup TNS | DRC | LVS | Antenna | Why |")
-    append_summary(summary_path_env, "|---:|---:|---|---:|---:|---:|---:|---:|---|")
+    append_summary(summary_path_env, "| Attempt | Clock (ns) | Status | Setup WNS | Setup TNS | DRC | LVS | Antenna | RC | Why |")
+    append_summary(summary_path_env, "|---:|---:|---|---:|---:|---:|---:|---:|---:|---|")
 
     history: List[Dict[str, Any]] = []
 
-    lower_fail: Optional[float] = None
-    upper_pass: Optional[float] = None
+    pass_bound: Optional[float] = None
+    fail_bound: Optional[float] = None
     current = max(args.min_clock_ns, min(args.max_clock_ns, args.start_clock_ns))
     step = max(args.initial_step_ns, args.tolerance_ns)
 
-    tried = set()
+    tried: set[float] = set()
 
     for attempt in range(1, args.max_iters + 1):
         rounded_current = round(current, 6)
         if rounded_current in tried:
+            print(f"Stopping: clock {rounded_current} ns already tried.", flush=True)
             break
         tried.add(rounded_current)
+
+        print(f"\n=== Attempt {attempt}: trying {rounded_current} ns ===", flush=True)
 
         attempt_dir = out_root / f"clk_{clock_label(rounded_current)}ns_attempt_{attempt:02d}"
         attempt_dir.mkdir(parents=True, exist_ok=True)
@@ -265,10 +336,11 @@ def main() -> None:
                 str(cfg_path),
             ],
             cwd=ROOT,
+            check=True,
         )
 
         start_ts = time.time()
-        sh(
+        openlane_rc = sh(
             [
                 "docker",
                 "run",
@@ -285,16 +357,20 @@ def main() -> None:
                 "python3 -m openlane --pdk-root /pdk config.json",
             ],
             cwd=ROOT,
+            check=False,
         )
+        print(f"OpenLane return code: {openlane_rc}", flush=True)
 
         run_dir = latest_run_dir(start_ts)
+        if not run_dir.exists():
+            raise SystemExit(f"Expected run dir not found after OpenLane attempt at {rounded_current} ns")
 
         with (attempt_dir / "run_meta.json").open("w", encoding="utf-8") as f:
             json.dump(
                 {
                     "variant": safe_variant,
                     "clock_ns_requested": rounded_current,
-                    "github_run_id": subprocess.os.environ.get("GITHUB_RUN_ID", ""),
+                    "github_run_id": os.environ.get("GITHUB_RUN_ID", ""),
                     "artifact_name": f"autoflow-{safe_variant}",
                 },
                 f,
@@ -303,7 +379,7 @@ def main() -> None:
 
         (attempt_dir / "run_dir_used.txt").write_text(f"RUN_DIR used: {run_dir}\n", encoding="utf-8")
 
-        sh(
+        extract_rc = sh(
             [
                 "python",
                 "tools/scripts/extract_metrics.py",
@@ -314,35 +390,33 @@ def main() -> None:
                 str(rounded_current),
             ],
             cwd=ROOT,
+            check=False,
+        )
+        print(f"extract_metrics return code: {extract_rc}", flush=True)
+
+        sh(
+            [
+                "python",
+                "tools/scripts/render_gds.py",
+                "--run-root",
+                str(run_dir),
+                "--out",
+                str(attempt_dir / "renders"),
+            ],
+            cwd=ROOT,
+            check=False,
         )
 
-        try:
-            sh(
-                [
-                    "python",
-                    "tools/scripts/render_gds.py",
-                    "--run-root",
-                    str(run_dir),
-                    "--out",
-                    str(attempt_dir / "renders"),
-                ],
-                cwd=ROOT,
-            )
-        except SystemExit:
-            pass
-
-        try:
-            sh(
-                [
-                    "python",
-                    "tools/scripts/build_layout_viewer.py",
-                    "--out-dir",
-                    str(attempt_dir),
-                ],
-                cwd=ROOT,
-            )
-        except SystemExit:
-            pass
+        sh(
+            [
+                "python",
+                "tools/scripts/build_layout_viewer.py",
+                "--out-dir",
+                str(attempt_dir),
+            ],
+            cwd=ROOT,
+            check=False,
+        )
 
         metrics_json = run_dir / "final" / "metrics.json"
         if metrics_json.exists():
@@ -359,6 +433,14 @@ def main() -> None:
         metrics_row = read_csv_row(attempt_dir / "metrics.csv")
         status, reason = classify_status(metrics_row)
 
+        if openlane_rc != 0 and status == "PASS":
+            status = "FLOW_FAIL"
+            reason = f"OpenLane exited with code {openlane_rc} despite PASS-like metrics"
+
+        if openlane_rc != 0 and not metrics_row:
+            status = "FLOW_FAIL"
+            reason = f"OpenLane exited with code {openlane_rc} and no metrics were extracted"
+
         history_row: Dict[str, Any] = {
             "attempt": attempt,
             "clock_ns": rounded_current,
@@ -371,39 +453,49 @@ def main() -> None:
             "drc_errors": metrics_row.get("drc_errors", ""),
             "lvs_errors": metrics_row.get("lvs_errors", ""),
             "antenna_violations": metrics_row.get("antenna_violations", ""),
+            "openlane_rc": openlane_rc,
             "attempt_dir": str(attempt_dir.relative_to(ROOT)),
         }
         history.append(history_row)
 
+        log_line = (
+            f"Attempt {attempt} | {rounded_current} ns | {status} | "
+            f"WNS={history_row['setup_wns_ns']} | TNS={history_row['setup_tns_ns']} | "
+            f"DRC={history_row['drc_errors']} | LVS={history_row['lvs_errors']} | "
+            f"ANT={history_row['antenna_violations']} | RC={openlane_rc} | {reason}"
+        )
+        print(log_line, flush=True)
+
         append_summary(
             summary_path_env,
-            f"| {attempt} | {rounded_current} | {status} | {history_row['setup_wns_ns']} | {history_row['setup_tns_ns']} | {history_row['drc_errors']} | {history_row['lvs_errors']} | {history_row['antenna_violations']} | {reason} |",
+            f"| {attempt} | {rounded_current} | {status} | {history_row['setup_wns_ns']} | "
+            f"{history_row['setup_tns_ns']} | {history_row['drc_errors']} | {history_row['lvs_errors']} | "
+            f"{history_row['antenna_violations']} | {openlane_rc} | {reason} |",
         )
 
         passed = status == "PASS"
 
         if passed:
-            upper_pass = rounded_current if upper_pass is None else min(upper_pass, rounded_current)
-            next_candidate = rounded_current - step
-            if lower_fail is not None:
-                interval = upper_pass - lower_fail
-                if interval <= args.tolerance_ns:
-                    break
-                next_candidate = (upper_pass + lower_fail) / 2.0
+            pass_bound = rounded_current if pass_bound is None else min(pass_bound, rounded_current)
         else:
-            lower_fail = rounded_current if lower_fail is None else max(lower_fail, rounded_current)
-            if upper_pass is None:
-                next_candidate = rounded_current + step
-            else:
-                interval = upper_pass - lower_fail
-                if interval <= args.tolerance_ns:
-                    break
-                next_candidate = (upper_pass + lower_fail) / 2.0
+            fail_bound = rounded_current if fail_bound is None else max(fail_bound, rounded_current)
 
-        if upper_pass is not None and lower_fail is not None:
-            step = max(args.tolerance_ns, abs(upper_pass - lower_fail) / 2.0)
+        next_clock, step = choose_next_clock(
+            passed=passed,
+            current=rounded_current,
+            pass_bound=pass_bound,
+            fail_bound=fail_bound,
+            step=step,
+            min_clock_ns=args.min_clock_ns,
+            max_clock_ns=args.max_clock_ns,
+            tolerance_ns=args.tolerance_ns,
+        )
 
-        current = max(args.min_clock_ns, min(args.max_clock_ns, next_candidate))
+        if next_clock is None:
+            print("Stopping: tolerance reached or no further useful clock candidate.", flush=True)
+            break
+
+        current = next_clock
 
     write_history_files(out_root, history)
 
@@ -417,6 +509,5 @@ def main() -> None:
         append_summary(summary_path_env, f"**Best selected clock:** `{best.get('clock_ns', '')}` ns")
         append_summary(summary_path_env, f"**Best status:** `{best.get('status', '')}`")
 
-
-if __name__ == "__main__":
-    main()
+    if not history:
+        raise SystemExit("Autoflow produced no attempts")
