@@ -165,9 +165,9 @@ jobs:
           if [ -z "${RESOLVED_VARIANT}" ]; then
             RESOLVED_VARIANT="$(python - <<'PY'
           import yaml
-          with open("manifest.yaml","r",encoding="utf-8") as f:
-              d=yaml.safe_load(f)
-          ex=[e["variant"].replace("/", "_") for e in d.get("experiments", []) if e.get("enabled", True)]
+          with open("manifest.yaml", "r", encoding="utf-8") as f:
+              d = yaml.safe_load(f)
+          ex = [e["variant"].replace("/", "_") for e in d.get("experiments", []) if e.get("enabled", True)]
           print(ex[0] if ex else "")
           PY
           )"
@@ -206,14 +206,14 @@ jobs:
 
                     python -c 'import json,sys; d=json.loads(sys.argv[1]); assert isinstance(d,list) and len(d)>0, "ERROR: matrix is empty"; print(f"Validated matrix entries: {len(d)}")' "${MATRIX_JSON}"
 
-          {
-            echo 'matrix<<EOF'
-            echo "${MATRIX_JSON}"
-            echo 'EOF'
-            echo "resolved_variant=${RESOLVED_VARIANT}"
-            echo "effective_mode=${EFFECTIVE_MODE}"
-            echo "resolved_start_clock_ns=${RESOLVED_START_CLOCK_NS}"
-          } >> "$GITHUB_OUTPUT"
+                    {
+                      echo 'matrix<<EOF'
+                      echo "${MATRIX_JSON}"
+                      echo 'EOF'
+                      echo "resolved_variant=${RESOLVED_VARIANT}"
+                      echo "effective_mode=${EFFECTIVE_MODE}"
+                      echo "resolved_start_clock_ns=${RESOLVED_START_CLOCK_NS}"
+                    } >> "$GITHUB_OUTPUT"
 
       - name: Plan Summary
         if: always()
@@ -383,6 +383,7 @@ jobs:
         with:
           name: run-${{ matrix.variant }}-${{ matrix.clock_ns }}
           path: ci_out/
+          if-no-files-found: error
 
       - name: Job Summary
         if: always()
@@ -491,7 +492,7 @@ jobs:
 
       - name: Pull OpenLane2 container
         run: docker pull "${OPENLANE2_IMAGE}"
-        
+
       - name: Run auto sweep
         env:
           INPUT_MIN_CLOCK_NS: ${{ inputs.min_clock_ns }}
@@ -537,17 +538,29 @@ jobs:
             --run-post-grt-resizer-timing "${RUN_POST_GRT_RESIZER_TIMING}" \
             --out-root "ci_out/${{ needs.plan.outputs.resolved_variant }}"
 
+      - name: Show autoflow outputs
+        if: always()
+        shell: bash
+        run: |
+          echo "PWD=$(pwd)"
+          echo "Listing ci_out:"
+          find ci_out -maxdepth 6 -type f 2>/dev/null | sort || true
+          echo "Listing repo root:"
+          find . -maxdepth 3 -type d | sort | sed -n '1,200p'
+
       - name: Upload autoflow artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: autoflow-${{ needs.plan.outputs.resolved_variant }}
-          path: ci_out/
+          path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
+          if-no-files-found: error
+          include-hidden-files: true
 
   compare-runs:
     name: Compare-Runs
-    needs: [run-flow, autoflow]
-    if: always()
+    if: ${{ (needs.plan.outputs.effective_mode == 'auto' && needs.autoflow.result == 'success') || (needs.plan.outputs.effective_mode == 'fixed' && needs.run-flow.result == 'success') }}
+    needs: [plan, run-flow, autoflow]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -570,6 +583,7 @@ jobs:
 
       - name: Show downloaded structure
         run: |
+          mkdir -p _collected
           find _collected -maxdepth 8 -type f | sort | sed -n '1,400p'
 
       - name: Build comparison summary, best bundle, and run explorer site
@@ -592,12 +606,14 @@ jobs:
             _compare_summary.md
             _compare_summary.csv
             _best_run.json
+          if-no-files-found: error
 
       - name: Upload best-layout bundle
         uses: actions/upload-artifact@v4
         with:
           name: best-layout-bundle
           path: best-layout-bundle/
+          if-no-files-found: error
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -620,8 +636,8 @@ jobs:
 
   deploy-run-explorer:
     name: Summary Run Page
+    if: ${{ needs.compare-runs.result == 'success' }}
     needs: compare-runs
-    if: always()
     runs-on: ubuntu-24.04
     environment:
       name: github-pages
