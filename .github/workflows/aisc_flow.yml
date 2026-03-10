@@ -62,7 +62,7 @@ on:
       synth_strategy:
         description: "OpenLane synthesis strategy"
         required: false
-        default: "AREA 3"
+        default: "AREA 0"
         type: string
       run_antenna_repair:
         description: "OpenLane RUN_ANTENNA_REPAIR"
@@ -386,7 +386,6 @@ jobs:
     timeout-minutes: 180
     strategy:
       fail-fast: false
-      max-parallel: 2
       matrix:
         clock_ns: ${{ fromJson(needs.plan.outputs.coarse_matrix_json) }}
 
