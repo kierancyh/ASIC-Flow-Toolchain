@@ -7,29 +7,79 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 
+CSV_FIELDS = [
+    "clock_ns",
+    "clock_ns_reported",
+    "setup_wns_ns",
+    "setup_tns_ns",
+    "hold_wns_ns",
+    "hold_tns_ns",
+    "core_area_um2",
+    "die_area_um2",
+    "instance_count",
+    "utilization_pct",
+    "wire_length_um",
+    "vias_count",
+    "power_total_W",
+    "power_internal_W",
+    "power_switching_W",
+    "power_leakage_W",
+    "power_source",
+    "drc_errors",
+    "drc_errors_klayout",
+    "drc_errors_magic",
+    "lvs_errors",
+    "antenna_violations",
+    "antenna_violating_nets",
+    "antenna_violating_pins",
+    "ir_drop_worst_V",
+    "power_fair_sta_rpt",
+    "status",
+]
+
+HISTORY_FIELDS = [
+    "attempt",
+    "clock_ns",
+    "status",
+    "selection_reason",
+    "setup_wns_ns",
+    "setup_tns_ns",
+    "hold_wns_ns",
+    "hold_tns_ns",
+    "drc_errors",
+    "lvs_errors",
+    "antenna_violations",
+    "openlane_rc",
+    "run_dir",
+    "attempt_dir",
+]
+
 
 def load_yaml(path: Path) -> Dict[str, Any]:
     with path.open("r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        return yaml.safe_load(f) or {}
 
 
 def sh(
-    cmd: List[str],
+    cmd: Sequence[str],
+    *,
     cwd: Optional[Path] = None,
     env: Optional[Dict[str, str]] = None,
     check: bool = True,
 ) -> int:
-    print(">", " ".join(str(x) for x in cmd), flush=True)
+    printable = " ".join(str(x) for x in cmd)
+    print(f"> {printable}", flush=True)
     rc = subprocess.run(
-        cmd,
+        [str(x) for x in cmd],
         cwd=str(cwd) if cwd else None,
         env=env,
         check=False,
@@ -41,57 +91,65 @@ def sh(
 
 def resolve_variant(value: str) -> str:
     manifest = load_yaml(ROOT / "manifest.yaml")
-    experiments = manifest.get("experiments", [])
+    experiments = manifest.get("experiments", []) or []
 
     if value:
         for exp in experiments:
-            variant = exp.get("variant", "")
-            if variant.replace("/", "_") == value:
-                return value
+            variant = str(exp.get("variant", ""))
+            safe = variant.replace("/", "_")
+            if value in (variant, safe):
+                return safe
         return value
 
-    enabled = [exp.get("variant", "").replace("/", "_") for exp in experiments if exp.get("enabled", True)]
+    enabled = [
+        str(exp.get("variant", "")).replace("/", "_")
+        for exp in experiments
+        if exp.get("enabled", True) and exp.get("variant")
+    ]
     if not enabled:
         raise SystemExit("No enabled variants found in manifest.yaml")
     return enabled[0]
 
 
 def safe_variant_to_path(safe_variant: str) -> Path:
+    candidate = ROOT / safe_variant
+    if candidate.is_dir() and (candidate / "variant.yaml").exists():
+        return candidate
+
     manifest = load_yaml(ROOT / "manifest.yaml")
-    for exp in manifest.get("experiments", []):
-        variant = exp.get("variant", "")
-        if variant.replace("/", "_") == safe_variant:
+    for exp in manifest.get("experiments", []) or []:
+        variant = str(exp.get("variant", ""))
+        safe = variant.replace("/", "_")
+        if safe_variant in (variant, safe):
             return ROOT / variant
-    raise SystemExit(f"Cannot map safe variant '{safe_variant}' to designs/<x>")
+
+    raise SystemExit(f"Cannot map variant '{safe_variant}' to a designs/<name> path")
 
 
-def latest_run_dir(since_ts: float) -> Path:
-    candidates: List[Tuple[float, Path]] = []
-    runs_dir = ROOT / "runs"
-    if not runs_dir.exists():
-        raise SystemExit("No runs/ directory found after OpenLane invocation")
+def to_float(value: Any) -> Optional[float]:
+    try:
+        if value in (None, "", "None"):
+            return None
+        return float(value)
+    except Exception:
+        return None
 
-    for metrics in runs_dir.glob("**/final/metrics.json"):
-        try:
-            mtime = metrics.stat().st_mtime
-        except OSError:
-            continue
-        if mtime >= since_ts - 1.0:
-            candidates.append((mtime, metrics.parent.parent))
 
-    if not candidates:
-        all_candidates = []
-        for metrics in runs_dir.glob("**/final/metrics.json"):
-            try:
-                all_candidates.append((metrics.stat().st_mtime, metrics.parent.parent))
-            except OSError:
-                pass
-        if not all_candidates:
-            raise SystemExit("No runs/**/final/metrics.json found")
-        candidates = all_candidates
+def clock_label(clock_ns: float) -> str:
+    as_float = float(clock_ns)
+    if as_float.is_integer():
+        return str(int(as_float))
+    return str(as_float).replace(".", "p")
 
-    candidates.sort(key=lambda x: x[0], reverse=True)
-    return candidates[0][1]
+
+def append_summary(summary_path: Optional[Path], line: str) -> None:
+    if summary_path is None:
+        return
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    with summary_path.open("a", encoding="utf-8") as f:
+        f.write(line)
+        if not line.endswith("\n"):
+            f.write("\n")
 
 
 def read_csv_row(path: Path) -> Dict[str, str]:
@@ -102,23 +160,100 @@ def read_csv_row(path: Path) -> Dict[str, str]:
     return rows[0] if rows else {}
 
 
-def to_float(v: Any) -> Optional[float]:
-    try:
-        if v in (None, "", "None"):
-            return None
-        return float(v)
-    except Exception:
+def write_placeholder_metrics(
+    attempt_dir: Path,
+    *,
+    clock_ns: float,
+    status: str = "FLOW_FAIL",
+) -> None:
+    attempt_dir.mkdir(parents=True, exist_ok=True)
+
+    row: Dict[str, Any] = {key: "" for key in CSV_FIELDS}
+    row["clock_ns"] = clock_ns
+    row["clock_ns_reported"] = ""
+    row["status"] = status
+
+    with (attempt_dir / "metrics.csv").open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
+        writer.writeheader()
+        writer.writerow({k: row.get(k, "") for k in CSV_FIELDS})
+
+    md_lines = [
+        "| " + " | ".join(CSV_FIELDS) + " |",
+        "|" + "|".join(["---"] * len(CSV_FIELDS)) + "|",
+        "| " + " | ".join(str(row.get(k, "")) for k in CSV_FIELDS) + " |",
+        "",
+    ]
+    (attempt_dir / "metrics.md").write_text("\n".join(md_lines), encoding="utf-8")
+
+
+def write_run_meta(attempt_dir: Path, *, variant: str, clock_ns: float) -> None:
+    meta = {
+        "variant": variant,
+        "clock_ns_requested": clock_ns,
+        "github_run_id": os.environ.get("GITHUB_RUN_ID", ""),
+        "artifact_name": f"autoflow-{variant}",
+    }
+    (attempt_dir / "run_meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+
+def find_latest_run_dir(since_ts: float) -> Optional[Path]:
+    runs_dir = ROOT / "runs"
+    if not runs_dir.exists():
         return None
 
+    candidates: List[Tuple[float, Path]] = []
 
-def classify_status(row: Dict[str, str]) -> Tuple[str, str]:
+    for path in runs_dir.rglob("RUN_*"):
+        if not path.is_dir():
+            continue
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
+        if mtime >= since_ts - 5.0:
+            candidates.append((mtime, path))
+
+    if not candidates:
+        for metrics in runs_dir.glob("**/final/metrics.json"):
+            try:
+                candidates.append((metrics.stat().st_mtime, metrics.parent.parent))
+            except OSError:
+                pass
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
+
+
+def maybe_copy_metrics_raw(run_dir: Path, attempt_dir: Path) -> None:
+    metrics_json = run_dir / "final" / "metrics.json"
+    if metrics_json.exists():
+        shutil.copy2(metrics_json, attempt_dir / "metrics_raw.json")
+
+
+def maybe_copy_gds(run_dir: Path, attempt_dir: Path) -> None:
+    gds_dir = run_dir / "final" / "gds"
+    if not gds_dir.exists():
+        return
+
+    dst_gds = attempt_dir / "final" / "gds"
+    dst_gds.mkdir(parents=True, exist_ok=True)
+    for gds in sorted(gds_dir.glob("*")):
+        if gds.is_file():
+            shutil.copy2(gds, dst_gds / gds.name)
+
+
+def classify_metrics_row(metrics_row: Dict[str, str]) -> Tuple[str, str]:
     reasons: List[str] = []
 
-    swns = to_float(row.get("setup_wns_ns"))
-    stns = to_float(row.get("setup_tns_ns"))
-    drc = to_float(row.get("drc_errors"))
-    lvs = to_float(row.get("lvs_errors"))
-    ant = to_float(row.get("antenna_violations"))
+    swns = to_float(metrics_row.get("setup_wns_ns"))
+    stns = to_float(metrics_row.get("setup_tns_ns"))
+    drc = to_float(metrics_row.get("drc_errors"))
+    lvs = to_float(metrics_row.get("lvs_errors"))
+    ant = to_float(metrics_row.get("antenna_violations"))
 
     timing_ok = swns is not None and stns is not None and swns >= 0.0 and stns >= 0.0
     signoff_ok = all(v in (None, 0.0) for v in (drc, lvs, ant))
@@ -143,19 +278,31 @@ def classify_status(row: Dict[str, str]) -> Tuple[str, str]:
     return "SIGNOFF_AND_TIMING_FAIL", "; ".join(reasons) if reasons else "Timing and signoff failed."
 
 
-def clock_label(clock_ns: float) -> str:
-    if float(clock_ns).is_integer():
-        return str(int(clock_ns))
-    return str(clock_ns).replace(".", "p")
+def classify_attempt(
+    *,
+    run_dir: Optional[Path],
+    metrics_row: Dict[str, str],
+    openlane_rc: int,
+) -> Tuple[str, str]:
+    if run_dir is None:
+        return "FLOW_FAIL", f"No OpenLane run directory found (rc={openlane_rc})."
 
+    if not metrics_row:
+        return "FLOW_FAIL", f"No metrics.csv was produced for discovered run dir {run_dir} (rc={openlane_rc})."
 
-def append_summary(summary_path: Optional[Path], line: str) -> None:
-    if not summary_path:
-        return
-    with summary_path.open("a", encoding="utf-8") as f:
-        f.write(line)
-        if not line.endswith("\n"):
-            f.write("\n")
+    status, reason = classify_metrics_row(metrics_row)
+
+    raw_status = str(metrics_row.get("status", "")).strip().upper()
+    if raw_status in {"INCOMPLETE", "FLOW_FAIL"}:
+        return "FLOW_FAIL", f"Metrics were incomplete for run dir {run_dir} (rc={openlane_rc})."
+
+    if openlane_rc != 0 and status == "PASS":
+        return "FLOW_FAIL", f"OpenLane exited with code {openlane_rc} despite PASS-like metrics."
+
+    if openlane_rc != 0:
+        return status, f"{reason}; OpenLane rc={openlane_rc}"
+
+    return status, reason
 
 
 def write_history_files(out_root: Path, history: List[Dict[str, Any]]) -> None:
@@ -164,32 +311,18 @@ def write_history_files(out_root: Path, history: List[Dict[str, Any]]) -> None:
     with (out_root / "autoflow_history.json").open("w", encoding="utf-8") as f:
         json.dump(history, f, indent=2)
 
-    fieldnames = [
-        "attempt",
-        "clock_ns",
-        "status",
-        "selection_reason",
-        "setup_wns_ns",
-        "setup_tns_ns",
-        "hold_wns_ns",
-        "hold_tns_ns",
-        "drc_errors",
-        "lvs_errors",
-        "antenna_violations",
-        "openlane_rc",
-        "attempt_dir",
-    ]
     with (out_root / "autoflow_history.csv").open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames)
-        w.writeheader()
+        writer = csv.DictWriter(f, fieldnames=HISTORY_FIELDS)
+        writer.writeheader()
         for row in history:
-            w.writerow({k: row.get(k, "") for k in fieldnames})
+            writer.writerow({k: row.get(k, "") for k in HISTORY_FIELDS})
 
-    lines = []
-    lines.append("## Autoflow attempts")
-    lines.append("")
-    lines.append("| Attempt | Clock (ns) | Status | Setup WNS | Setup TNS | DRC | LVS | Antenna | RC | Why |")
-    lines.append("|---:|---:|---|---:|---:|---:|---:|---:|---:|---|")
+    lines = [
+        "## Autoflow attempts",
+        "",
+        "| Attempt | Clock (ns) | Status | Setup WNS | Setup TNS | DRC | LVS | Antenna | RC | Why |",
+        "|---:|---:|---|---:|---:|---:|---:|---:|---:|---|",
+    ]
     for row in history:
         lines.append(
             f"| {row.get('attempt','')} | {row.get('clock_ns','')} | {row.get('status','')} | "
@@ -197,7 +330,18 @@ def write_history_files(out_root: Path, history: List[Dict[str, Any]]) -> None:
             f"{row.get('lvs_errors','')} | {row.get('antenna_violations','')} | {row.get('openlane_rc','')} | "
             f"{row.get('selection_reason','')} |"
         )
+
     (out_root / "autoflow_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def compute_bounds(pass_clocks: Sequence[float], fail_clocks: Sequence[float]) -> Tuple[Optional[float], Optional[float]]:
+    pass_bound = min(pass_clocks) if pass_clocks else None
+    if pass_bound is None:
+        return None, None
+
+    lower_fails = [f for f in fail_clocks if f < pass_bound]
+    fail_bound = max(lower_fails) if lower_fails else None
+    return pass_bound, fail_bound
 
 
 def midpoint(a: float, b: float, precision: int = 6) -> float:
@@ -206,10 +350,9 @@ def midpoint(a: float, b: float, precision: int = 6) -> float:
 
 def choose_next_clock(
     *,
-    passed: bool,
     current: float,
-    pass_bound: Optional[float],
-    fail_bound: Optional[float],
+    pass_clocks: Sequence[float],
+    fail_clocks: Sequence[float],
     step: float,
     min_clock_ns: float,
     max_clock_ns: float,
@@ -217,41 +360,45 @@ def choose_next_clock(
 ) -> Tuple[Optional[float], float]:
     """
     Lower clock period is harder.
-    pass_bound = smallest known passing clock.
-    fail_bound = largest known failing clock below that passing bound.
+
+    Strategy:
+    - no passes yet: move to an easier clock by increasing the period
+    - passes but no failing lower bound yet: push harder by decreasing the period
+    - once bracketed: binary search between smallest pass and largest fail below it
     """
+    next_step = max(step, tolerance_ns)
+    pass_bound, fail_bound = compute_bounds(pass_clocks, fail_clocks)
 
-    next_step = step
-    next_clock: Optional[float] = None
+    if pass_bound is None:
+        candidate = min(max_clock_ns, current + next_step)
+        if abs(candidate - current) < 1e-9:
+            return None, next_step
+        return round(candidate, 6), next_step
 
-    if passed:
-        if fail_bound is None:
-            next_clock = current - step
-        else:
-            interval = pass_bound - fail_bound
-            if interval <= tolerance_ns:
-                return None, next_step
-            next_clock = midpoint(pass_bound, fail_bound)
-            next_step = max(tolerance_ns, interval / 2.0)
-    else:
-        if pass_bound is None:
-            next_clock = current + step
-        else:
-            interval = pass_bound - fail_bound
-            if interval <= tolerance_ns:
-                return None, next_step
-            next_clock = midpoint(pass_bound, fail_bound)
-            next_step = max(tolerance_ns, interval / 2.0)
+    if fail_bound is None:
+        candidate = max(min_clock_ns, pass_bound - next_step)
+        if abs(candidate - current) < 1e-9:
+            return None, next_step
+        return round(candidate, 6), next_step
 
-    if next_clock is None:
-        return None, next_step
+    interval = pass_bound - fail_bound
+    if interval <= tolerance_ns:
+        return None, max(tolerance_ns, interval / 2.0)
 
-    next_clock = max(min_clock_ns, min(max_clock_ns, next_clock))
+    candidate = midpoint(pass_bound, fail_bound)
+    candidate = max(min_clock_ns, min(max_clock_ns, candidate))
+    if abs(candidate - current) < 1e-9:
+        return None, max(tolerance_ns, interval / 2.0)
 
-    if abs(next_clock - current) < 1e-9:
-        return None, next_step
+    return candidate, max(tolerance_ns, interval / 2.0)
 
-    return next_clock, next_step
+
+def resolve_summary_path() -> Optional[Path]:
+    if os.environ.get("GITHUB_STEP_SUMMARY_PATH"):
+        return Path(os.environ["GITHUB_STEP_SUMMARY_PATH"])
+    if os.environ.get("GITHUB_STEP_SUMMARY"):
+        return Path(os.environ["GITHUB_STEP_SUMMARY"])
+    return None
 
 
 def main() -> None:
@@ -279,26 +426,33 @@ def main() -> None:
     out_root = (ROOT / args.out_root).resolve()
     out_root.mkdir(parents=True, exist_ok=True)
     (out_root / ".autoflow_started").write_text("started\n", encoding="utf-8")
-    print(f"Autoflow out_root = {out_root}", flush=True)
 
-    summary_path_env: Optional[Path] = None
-    if os.environ.get("GITHUB_STEP_SUMMARY_PATH"):
-        summary_path_env = Path(os.environ["GITHUB_STEP_SUMMARY_PATH"])
-    elif os.environ.get("GITHUB_STEP_SUMMARY"):
-        summary_path_env = Path(os.environ["GITHUB_STEP_SUMMARY"])
+    session_meta = {
+        "variant": safe_variant,
+        "start_clock_ns": args.start_clock_ns,
+        "min_clock_ns": args.min_clock_ns,
+        "max_clock_ns": args.max_clock_ns,
+        "initial_step_ns": args.initial_step_ns,
+        "tolerance_ns": args.tolerance_ns,
+        "max_iters": args.max_iters,
+        "openlane_image": args.openlane_image,
+        "pdk_root": args.pdk_root,
+        "github_run_id": os.environ.get("GITHUB_RUN_ID", ""),
+    }
+    (out_root / "_autoflow_session.json").write_text(json.dumps(session_meta, indent=2), encoding="utf-8")
 
-    append_summary(summary_path_env, f"## Autoflow: {safe_variant}")
-    append_summary(summary_path_env, "")
-    append_summary(summary_path_env, "| Attempt | Clock (ns) | Status | Setup WNS | Setup TNS | DRC | LVS | Antenna | RC | Why |")
-    append_summary(summary_path_env, "|---:|---:|---|---:|---:|---:|---:|---:|---:|---|")
+    summary_path = resolve_summary_path()
+    append_summary(summary_path, f"## Autoflow: {safe_variant}")
+    append_summary(summary_path, "")
+    append_summary(summary_path, "| Attempt | Clock (ns) | Status | Setup WNS | Setup TNS | DRC | LVS | Antenna | RC | Why |")
+    append_summary(summary_path, "|---:|---:|---|---:|---:|---:|---:|---:|---:|---|")
 
     history: List[Dict[str, Any]] = []
+    pass_clocks: List[float] = []
+    fail_clocks: List[float] = []
 
-    pass_bound: Optional[float] = None
-    fail_bound: Optional[float] = None
     current = max(args.min_clock_ns, min(args.max_clock_ns, args.start_clock_ns))
     step = max(args.initial_step_ns, args.tolerance_ns)
-
     tried: set[float] = set()
 
     for attempt in range(1, args.max_iters + 1):
@@ -312,12 +466,17 @@ def main() -> None:
 
         attempt_dir = out_root / f"clk_{clock_label(rounded_current)}ns_attempt_{attempt:02d}"
         attempt_dir.mkdir(parents=True, exist_ok=True)
+        write_run_meta(attempt_dir, variant=safe_variant, clock_ns=rounded_current)
+        (attempt_dir / "attempt_started.txt").write_text(
+            f"attempt={attempt}\nclock_ns={rounded_current}\nstarted_at={int(time.time())}\n",
+            encoding="utf-8",
+        )
 
         cfg_path = ROOT / "config.json"
         sh(
             [
-                "python",
-                "tools/scripts/gen_config.py",
+                sys.executable,
+                str(ROOT / "tools/scripts/gen_config.py"),
                 "--variant",
                 safe_variant,
                 "--clock_ns",
@@ -363,85 +522,61 @@ def main() -> None:
         )
         print(f"OpenLane return code: {openlane_rc}", flush=True)
 
-        run_dir = latest_run_dir(start_ts)
-        if not run_dir.exists():
-            raise SystemExit(f"Expected run dir not found after OpenLane attempt at {rounded_current} ns")
+        run_dir = find_latest_run_dir(start_ts)
+        if run_dir is None:
+            print("No run directory detected after attempt.", flush=True)
+            (attempt_dir / "run_dir_used.txt").write_text("(missing)\n", encoding="utf-8")
+            write_placeholder_metrics(attempt_dir, clock_ns=rounded_current, status="FLOW_FAIL")
+        else:
+            print(f"Using run directory: {run_dir}", flush=True)
+            (attempt_dir / "run_dir_used.txt").write_text(f"{run_dir}\n", encoding="utf-8")
 
-        with (attempt_dir / "run_meta.json").open("w", encoding="utf-8") as f:
-            json.dump(
-                {
-                    "variant": safe_variant,
-                    "clock_ns_requested": rounded_current,
-                    "github_run_id": os.environ.get("GITHUB_RUN_ID", ""),
-                    "artifact_name": f"autoflow-{safe_variant}",
-                },
-                f,
-                indent=2,
+            extract_rc = sh(
+                [
+                    sys.executable,
+                    str(ROOT / "tools/scripts/extract_metrics.py"),
+                    str(run_dir),
+                    "--out",
+                    str(attempt_dir),
+                    "--clock-ns",
+                    str(rounded_current),
+                ],
+                cwd=ROOT,
+                check=False,
+            )
+            print(f"extract_metrics return code: {extract_rc}", flush=True)
+
+            sh(
+                [
+                    sys.executable,
+                    str(ROOT / "tools/scripts/render_gds.py"),
+                    "--run-root",
+                    str(run_dir),
+                    "--out",
+                    str(attempt_dir / "renders"),
+                ],
+                cwd=ROOT,
+                check=False,
+            )
+            sh(
+                [
+                    sys.executable,
+                    str(ROOT / "tools/scripts/build_layout_viewer.py"),
+                    "--out-dir",
+                    str(attempt_dir),
+                ],
+                cwd=ROOT,
+                check=False,
             )
 
-        (attempt_dir / "run_dir_used.txt").write_text(f"RUN_DIR used: {run_dir}\n", encoding="utf-8")
+            maybe_copy_metrics_raw(run_dir, attempt_dir)
+            maybe_copy_gds(run_dir, attempt_dir)
 
-        extract_rc = sh(
-            [
-                "python",
-                "tools/scripts/extract_metrics.py",
-                str(run_dir),
-                "--out",
-                str(attempt_dir),
-                "--clock-ns",
-                str(rounded_current),
-            ],
-            cwd=ROOT,
-            check=False,
-        )
-        print(f"extract_metrics return code: {extract_rc}", flush=True)
-
-        sh(
-            [
-                "python",
-                "tools/scripts/render_gds.py",
-                "--run-root",
-                str(run_dir),
-                "--out",
-                str(attempt_dir / "renders"),
-            ],
-            cwd=ROOT,
-            check=False,
-        )
-
-        sh(
-            [
-                "python",
-                "tools/scripts/build_layout_viewer.py",
-                "--out-dir",
-                str(attempt_dir),
-            ],
-            cwd=ROOT,
-            check=False,
-        )
-
-        metrics_json = run_dir / "final" / "metrics.json"
-        if metrics_json.exists():
-            shutil.copy2(metrics_json, attempt_dir / "metrics_raw.json")
-
-        gds_dir = run_dir / "final" / "gds"
-        if gds_dir.exists():
-            dst_gds = attempt_dir / "final" / "gds"
-            dst_gds.mkdir(parents=True, exist_ok=True)
-            for g in gds_dir.glob("*"):
-                if g.is_file():
-                    shutil.copy2(g, dst_gds / g.name)
+            if not (attempt_dir / "metrics.csv").exists():
+                write_placeholder_metrics(attempt_dir, clock_ns=rounded_current, status="FLOW_FAIL")
 
         metrics_row = read_csv_row(attempt_dir / "metrics.csv")
-        status, reason = classify_status(metrics_row)
-
-        if openlane_rc != 0 and status == "PASS":
-            status = "FLOW_FAIL"
-            reason = f"OpenLane exited with code {openlane_rc} despite PASS-like metrics"
-
-        if openlane_rc != 0 and not metrics_row:
-            status = "FLOW_FAIL"
-            reason = f"OpenLane exited with code {openlane_rc} and no metrics were extracted"
+        status, reason = classify_attempt(run_dir=run_dir, metrics_row=metrics_row, openlane_rc=openlane_rc)
 
         history_row: Dict[str, Any] = {
             "attempt": attempt,
@@ -456,6 +591,7 @@ def main() -> None:
             "lvs_errors": metrics_row.get("lvs_errors", ""),
             "antenna_violations": metrics_row.get("antenna_violations", ""),
             "openlane_rc": openlane_rc,
+            "run_dir": str(run_dir) if run_dir else "",
             "attempt_dir": str(attempt_dir.relative_to(ROOT)),
         }
         history.append(history_row)
@@ -468,32 +604,27 @@ def main() -> None:
             f"ANT={history_row['antenna_violations']} | RC={openlane_rc} | {reason}"
         )
         print(log_line, flush=True)
-
         append_summary(
-            summary_path_env,
+            summary_path,
             f"| {attempt} | {rounded_current} | {status} | {history_row['setup_wns_ns']} | "
             f"{history_row['setup_tns_ns']} | {history_row['drc_errors']} | {history_row['lvs_errors']} | "
             f"{history_row['antenna_violations']} | {openlane_rc} | {reason} |",
         )
 
-        passed = status == "PASS"
-
-        if passed:
-            pass_bound = rounded_current if pass_bound is None else min(pass_bound, rounded_current)
+        if status == "PASS":
+            pass_clocks.append(rounded_current)
         else:
-            fail_bound = rounded_current if fail_bound is None else max(fail_bound, rounded_current)
+            fail_clocks.append(rounded_current)
 
         next_clock, step = choose_next_clock(
-            passed=passed,
             current=rounded_current,
-            pass_bound=pass_bound,
-            fail_bound=fail_bound,
+            pass_clocks=pass_clocks,
+            fail_clocks=fail_clocks,
             step=step,
             min_clock_ns=args.min_clock_ns,
             max_clock_ns=args.max_clock_ns,
             tolerance_ns=args.tolerance_ns,
         )
-
         if next_clock is None:
             print("Stopping: tolerance reached or no further useful clock candidate.", flush=True)
             break
@@ -502,15 +633,31 @@ def main() -> None:
 
     write_history_files(out_root, history)
 
-    passing = [h for h in history if h["status"] == "PASS"]
-    best = min(passing, key=lambda x: float(x["clock_ns"])) if passing else (history[-1] if history else {})
-    with (out_root / "_autoflow_best.json").open("w", encoding="utf-8") as f:
-        json.dump(best, f, indent=2)
-
-    append_summary(summary_path_env, "")
-    if best:
-        append_summary(summary_path_env, f"**Best selected clock:** `{best.get('clock_ns', '')}` ns")
-        append_summary(summary_path_env, f"**Best status:** `{best.get('status', '')}`")
-
     if not history:
         raise SystemExit("Autoflow produced no attempts")
+
+    passing = [row for row in history if row["status"] == "PASS"]
+    best = min(passing, key=lambda row: float(row["clock_ns"])) if passing else history[-1]
+
+    (out_root / "_autoflow_best.json").write_text(json.dumps(best, indent=2), encoding="utf-8")
+    status_payload = {
+        "variant": safe_variant,
+        "attempt_count": len(history),
+        "pass_count": len(passing),
+        "fail_count": len(history) - len(passing),
+        "best_clock_ns": best.get("clock_ns"),
+        "best_status": best.get("status"),
+        "best_attempt_dir": best.get("attempt_dir"),
+    }
+    (out_root / "_autoflow_status.json").write_text(json.dumps(status_payload, indent=2), encoding="utf-8")
+    (out_root / ".autoflow_completed").write_text("completed\n", encoding="utf-8")
+
+    append_summary(summary_path, "")
+    append_summary(summary_path, f"**Attempts recorded:** `{len(history)}`")
+    append_summary(summary_path, f"**Passing attempts:** `{len(passing)}`")
+    append_summary(summary_path, f"**Best selected clock:** `{best.get('clock_ns', '')}` ns")
+    append_summary(summary_path, f"**Best status:** `{best.get('status', '')}`")
+
+
+if __name__ == "__main__":
+    main()
