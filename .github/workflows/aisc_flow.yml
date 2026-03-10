@@ -127,6 +127,7 @@ jobs:
       fixed_matrix_json: ${{ steps.fixed.outputs.fixed_matrix_json }}
       openlane_image: ${{ steps.tools.outputs.openlane_image }}
       open_pdks_rev: ${{ steps.tools.outputs.open_pdks_rev }}
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -306,15 +307,13 @@ jobs:
             echo "- Variant: \`${{ steps.resolve.outputs.resolved_variant }}\`"
             echo "- Mode: \`${{ steps.resolve.outputs.effective_mode }}\`"
             echo "- Auto start clock: \`${{ steps.start.outputs.start_clock_ns }}\`"
-            echo "- Fixed matrix: \`${{ steps.fixed.outputs.fixed_matrix_json }}\`"
-            echo "- OpenLane image: \`${{ steps.tools.outputs.openlane_image }}\`"
-            echo "- open_pdks revision: \`${{ steps.tools.outputs.open_pdks_rev }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
   autoflow:
     needs: plan
     if: ${{ needs.plan.outputs.effective_mode == 'auto' }}
     runs-on: ubuntu-latest
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -333,14 +332,14 @@ jobs:
       - name: Restore PDK cache
         uses: actions/cache@v4
         with:
-          path: ~/.volare
+          path: ${{ github.workspace }}/.volare
           key: ${{ runner.os }}-sky130-volare-${{ needs.plan.outputs.open_pdks_rev }}
           restore-keys: |
             ${{ runner.os }}-sky130-volare-
 
       - name: Install Sky130 PDK with Volare
         env:
-          PDK_ROOT: ~/.volare
+          PDK_ROOT: ${{ github.workspace }}/.volare
           OPEN_PDKS_REV: ${{ needs.plan.outputs.open_pdks_rev }}
         run: |
           mkdir -p "${PDK_ROOT}"
@@ -367,7 +366,7 @@ jobs:
           RUN_HEURISTIC_DIODE_INSERTION: ${{ github.event.inputs.run_heuristic_diode_insertion }}
           RUN_POST_GRT_DESIGN_REPAIR: ${{ github.event.inputs.run_post_grt_design_repair }}
           RUN_POST_GRT_RESIZER_TIMING: ${{ github.event.inputs.run_post_grt_resizer_timing }}
-          PDK_ROOT: ~/.volare
+          PDK_ROOT: ${{ github.workspace }}/.volare
         run: |
           python tools/scripts/autoflow.py \
             --variant "${VARIANT}" \
@@ -411,6 +410,7 @@ jobs:
       fail-fast: false
       matrix:
         clock_ns: ${{ fromJson(needs.plan.outputs.fixed_matrix_json) }}
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -429,14 +429,14 @@ jobs:
       - name: Restore PDK cache
         uses: actions/cache@v4
         with:
-          path: ~/.volare
+          path: ${{ github.workspace }}/.volare
           key: ${{ runner.os }}-sky130-volare-${{ needs.plan.outputs.open_pdks_rev }}
           restore-keys: |
             ${{ runner.os }}-sky130-volare-
 
       - name: Install Sky130 PDK with Volare
         env:
-          PDK_ROOT: ~/.volare
+          PDK_ROOT: ${{ github.workspace }}/.volare
           OPEN_PDKS_REV: ${{ needs.plan.outputs.open_pdks_rev }}
         run: |
           mkdir -p "${PDK_ROOT}"
@@ -457,7 +457,7 @@ jobs:
           RUN_HEURISTIC_DIODE_INSERTION: ${{ github.event.inputs.run_heuristic_diode_insertion }}
           RUN_POST_GRT_DESIGN_REPAIR: ${{ github.event.inputs.run_post_grt_design_repair }}
           RUN_POST_GRT_RESIZER_TIMING: ${{ github.event.inputs.run_post_grt_resizer_timing }}
-          PDK_ROOT: ~/.volare
+          PDK_ROOT: ${{ github.workspace }}/.volare
           CLOCK_NS: ${{ matrix.clock_ns }}
         run: |
           python tools/scripts/autoflow.py \
@@ -501,6 +501,7 @@ jobs:
       - run-flow
     if: ${{ always() && (needs.autoflow.result != 'skipped' || needs.run-flow.result != 'skipped') }}
     runs-on: ubuntu-latest
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -585,6 +586,7 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
