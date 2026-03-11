@@ -97,6 +97,7 @@ permissions:
 
 env:
   PYTHONUNBUFFERED: "1"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   plan:
@@ -1005,7 +1006,9 @@ jobs:
       - name: Workflow Summary
         run: |
           {
-            echo "## Published Run Explorer"
+            echo "## Published Run Explorer Summary"
+            echo ""
+            echo "To view detailed metrics per run:"
             echo ""
             echo "- [Open ASIC Flow Run Explorer](${{ steps.deployment.outputs.page_url }})"
           } >> "$GITHUB_STEP_SUMMARY"

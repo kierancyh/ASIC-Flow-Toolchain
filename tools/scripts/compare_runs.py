@@ -259,8 +259,8 @@ def build_theme_widget(button_id: str, panel_id: str) -> str:
   <button class="theme-launch" id="{button_id}" type="button" aria-expanded="false" aria-controls="{panel_id}">Appearance ⚙️</button>
   <div class="theme-widget" id="{panel_id}" hidden>
     <div class="theme-widget-body">
-      <h3>Page appearance</h3>
-      <div class="theme-row"><label for="{panel_id}_preset">Theme preset</label><select id="{panel_id}_preset"><option value="canvas">Canvas Beige</option><option value="darkwood">Dark Wood</option><option value="forest">Forest</option><option value="slate">Slate</option></select></div>
+      <h3>Appearance</h3>
+      <div class="theme-row"><label for="{panel_id}_preset">Theme preset</label><select id="{panel_id}_preset"><option value="canvas">Canvas Beige</option><option value="forest">Forest</option><option value="slate">Slate</option></select></div>
       <div class="theme-inline">
         <div class="theme-row"><label for="{panel_id}_bg">Base background</label><input type="color" id="{panel_id}_bg" value="#f4ecdf"></div>
         <div class="theme-row"><label for="{panel_id}_accent">Accent</label><input type="color" id="{panel_id}_accent" value="#8b5e3c"></div>
@@ -274,7 +274,6 @@ def build_theme_widget(button_id: str, panel_id: str) -> str:
   </div>
 </div>
 '''
-
 
 def build_theme_script(button_id: str, panel_id: str, storage_key: str) -> str:
     return f'''
@@ -294,13 +293,42 @@ def build_theme_script(button_id: str, panel_id: str, storage_key: str) -> str:
   const resetTheme = document.getElementById("{panel_id}_reset");
   const presets = {{
     canvas: {{"--bg":"#f4ecdf","--bg-grad-1":"#f8f1e7","--bg-grad-2":"#efe4d3","--accent":"#8b5e3c","--accent-2":"#b6845e"}},
-    darkwood: {{"--bg":"#1b1712","--bg-grad-1":"#241c14","--bg-grad-2":"#34281d","--accent":"#e1b78a","--accent-2":"#d39f68"}},
     forest: {{"--bg":"#e9efe7","--bg-grad-1":"#f3f7f1","--bg-grad-2":"#d9e7d5","--accent":"#4f7a5c","--accent-2":"#789d83"}},
     slate: {{"--bg":"#e7ebf0","--bg-grad-1":"#f3f6fa","--bg-grad-2":"#d7dde6","--accent":"#496a8a","--accent-2":"#7292b0"}}
   }};
   function applyVars(vars) {{ Object.entries(vars).forEach(([k,v]) => root.style.setProperty(k, v)); }}
+  function syncInputsFromCurrentTheme() {{
+    const styles = getComputedStyle(root);
+    bgColor.value = styles.getPropertyValue("--bg").trim() || bgColor.value;
+    grad1.value = styles.getPropertyValue("--bg-grad-1").trim() || grad1.value;
+    grad2.value = styles.getPropertyValue("--bg-grad-2").trim() || grad2.value;
+    accentColor.value = styles.getPropertyValue("--accent").trim() || accentColor.value;
+  }}
   function saveSettings() {{ localStorage.setItem("{storage_key}", JSON.stringify({{preset:presetTheme.value,bg:bgColor.value,grad1:grad1.value,grad2:grad2.value,accent:accentColor.value}})); }}
-  function loadSettings() {{ const raw = localStorage.getItem("{storage_key}"); if (!raw) return; try {{ const s = JSON.parse(raw); if (s.preset && presets[s.preset]) {{ presetTheme.value = s.preset; applyVars(presets[s.preset]); }} if (s.bg) bgColor.value = s.bg; if (s.grad1) grad1.value = s.grad1; if (s.grad2) grad2.value = s.grad2; if (s.accent) accentColor.value = s.accent; applyVars({{"--bg":bgColor.value,"--bg-grad-1":grad1.value,"--bg-grad-2":grad2.value,"--accent":accentColor.value,"--accent-2":accentColor.value}}); }} catch (e) {{}} }}
+  function loadSettings() {{
+    const raw = localStorage.getItem("{storage_key}");
+    if (!raw) {{
+      presetTheme.value = "canvas";
+      applyVars(presets.canvas);
+      syncInputsFromCurrentTheme();
+      return;
+    }}
+    try {{
+      const s = JSON.parse(raw);
+      const preset = (s.preset && presets[s.preset]) ? s.preset : "canvas";
+      presetTheme.value = preset;
+      applyVars(presets[preset]);
+      if (s.bg) bgColor.value = s.bg;
+      if (s.grad1) grad1.value = s.grad1;
+      if (s.grad2) grad2.value = s.grad2;
+      if (s.accent) accentColor.value = s.accent;
+      applyVars({{"--bg":bgColor.value,"--bg-grad-1":grad1.value,"--bg-grad-2":grad2.value,"--accent":accentColor.value,"--accent-2":accentColor.value}});
+    }} catch (e) {{
+      presetTheme.value = "canvas";
+      applyVars(presets.canvas);
+    }}
+    syncInputsFromCurrentTheme();
+  }}
   function positionPanel() {{ if (panel.hidden) return; const rect = button.getBoundingClientRect(); const vw = window.innerWidth || document.documentElement.clientWidth || 0; const vh = window.innerHeight || document.documentElement.clientHeight || 0; const margin = 12; const w = Math.min(340, Math.max(260, vw - (margin * 2))); panel.style.width = w + "px"; panel.style.maxWidth = w + "px"; const h = panel.offsetHeight || 320; let left = rect.right - w; left = Math.max(margin, Math.min(left, vw - w - margin)); let top = rect.bottom + 12; if (top + h > vh - margin) top = Math.max(margin, rect.top - h - 12); panel.style.left = left + "px"; panel.style.top = top + "px"; }}
   function openPanel() {{ panel.hidden = false; button.setAttribute("aria-expanded", "true"); positionPanel(); }}
   function closePanel() {{ panel.hidden = true; button.setAttribute("aria-expanded", "false"); }}
@@ -310,16 +338,15 @@ def build_theme_script(button_id: str, panel_id: str, storage_key: str) -> str:
   document.addEventListener("keydown", function (e) {{ if (e.key === "Escape") closePanel(); }});
   window.addEventListener("resize", function () {{ if (!panel.hidden) positionPanel(); }});
   window.addEventListener("scroll", function () {{ if (!panel.hidden) positionPanel(); }}, true);
-  presetTheme.addEventListener("change", function () {{ applyVars(presets[presetTheme.value]); saveSettings(); }});
+  presetTheme.addEventListener("change", function () {{ if (presets[presetTheme.value]) {{ applyVars(presets[presetTheme.value]); syncInputsFromCurrentTheme(); saveSettings(); }} }});
   [bgColor, grad1, grad2, accentColor].forEach(el => el.addEventListener("input", function () {{ applyVars({{"--bg":bgColor.value,"--bg-grad-1":grad1.value,"--bg-grad-2":grad2.value,"--accent":accentColor.value,"--accent-2":accentColor.value}}); saveSettings(); }}));
   saveTheme.addEventListener("click", saveSettings);
-  resetTheme.addEventListener("click", function () {{ localStorage.removeItem("{storage_key}"); location.reload(); }});
+  resetTheme.addEventListener("click", function () {{ localStorage.removeItem("{storage_key}"); presetTheme.value = "canvas"; applyVars(presets.canvas); syncInputsFromCurrentTheme(); closePanel(); }});
   loadSettings();
   closePanel();
 }})();
 </script>
 '''
-
 
 def value_or_dash(v: Any) -> str:
     s = "" if v is None else str(v)
@@ -350,12 +377,38 @@ def kv_rows(items: List[Tuple[str, Any]]) -> str:
     return "".join(f"<tr><td>{html.escape(k)}</td><td>{value_or_dash(v)}</td></tr>" for k, v in items)
 
 
-def build_site(site_root: Path, rows: List[Dict[str, str]]) -> None:
+def build_site(
+    site_root: Path,
+    rows: List[Dict[str, str]],
+    explorer_settings: Optional[Dict[str, str]] = None,
+) -> None:
     site_root.mkdir(parents=True, exist_ok=True)
     runs_root = site_root / "runs"
     runs_root.mkdir(parents=True, exist_ok=True)
     ordered = sorted(rows, key=best_sort_key)
-    css = ":root{color-scheme:light dark;--bg:#f4ecdf;--bg-grad-1:#f8f1e7;--bg-grad-2:#efe4d3;--panel:rgba(255,250,243,.82);--panel-strong:rgba(255,248,238,.94);--panel-soft:rgba(255,255,255,.46);--border:rgba(116,92,62,.16);--border-strong:rgba(116,92,62,.22);--text:#2f2418;--muted:#716250;--accent:#8b5e3c;--accent-2:#b6845e;--shadow:0 18px 45px rgba(110,84,53,.12);--pass-bg:rgba(73,143,96,.14);--pass-fg:#285a38;--timing-bg:rgba(190,143,45,.16);--timing-fg:#7d5b13;--signoff-bg:rgba(180,83,72,.14);--signoff-fg:#7b2f28;--mixed-bg:rgba(135,96,166,.14);--mixed-fg:#5b3f77;--flow-bg:rgba(120,115,108,.14);--flow-fg:#504a44;--radius-xl:28px;--radius-lg:20px;--radius-md:14px}body{margin:0;background:radial-gradient(circle at top left,var(--bg-grad-1)0%,transparent 36%),radial-gradient(circle at top right,var(--bg-grad-2)0%,transparent 28%),linear-gradient(180deg,var(--bg-grad-1)0%,var(--bg)100%);color:var(--text);font:15px/1.6 Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif}a{color:var(--accent);text-decoration:none}.wrap{max-width:1520px;margin:0 auto;padding:28px 20px 40px}.hero{background:var(--panel-strong);border:1px solid var(--border-strong);border-radius:var(--radius-xl);padding:30px;box-shadow:var(--shadow);margin-bottom:22px}.hero-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:18px}.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius-lg);padding:22px;box-shadow:var(--shadow)}.span-12{grid-column:span 12}.span-7{grid-column:span 7}.span-5{grid-column:span 5}.span-3{grid-column:span 3}.kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.stat{background:var(--panel-soft);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px}.stat .label{color:var(--muted);font-size:12px;text-transform:uppercase}.stat .value{font-size:28px;font-weight:700}.table-card{padding:0;overflow:hidden}.table-head{display:flex;justify-content:space-between;align-items:center;padding:18px 20px;border-bottom:1px solid var(--border)}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:1180px}th,td{padding:14px 16px;border-bottom:1px solid var(--border)}th{background:rgba(255,248,240,.92);text-align:left;font-size:13px}.badge{display:inline-flex;align-items:center;justify-content:center;min-width:112px;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:700}.badge.pass{background:var(--pass-bg);color:var(--pass-fg)}.badge.timing{background:var(--timing-bg);color:var(--timing-fg)}.badge.signoff{background:var(--signoff-bg);color:var(--signoff-fg)}.badge.mixed{background:var(--mixed-bg);color:var(--mixed-fg)}.badge.flow{background:var(--flow-bg);color:var(--flow-fg)}.btn{display:inline-flex;align-items:center;justify-content:center;padding:8px 12px;border-radius:10px;border:1px solid rgba(139,94,60,.20);background:rgba(139,94,60,.08);color:var(--text);font-weight:600;font-size:13px}.btn.secondary{border-color:var(--border-strong);background:rgba(255,255,255,.08)}.actions{display:flex;gap:8px;flex-wrap:wrap}.inventory{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.inventory .item{background:var(--panel-soft);border:1px solid var(--border);border-radius:var(--radius-md);padding:14px}.theme-control{position:relative;z-index:40}.theme-launch{display:inline-flex;min-width:148px;padding:10px 14px;border-radius:12px;border:1px solid var(--border-strong);background:var(--panel-soft);cursor:pointer}.theme-widget{position:fixed;top:72px;right:24px;width:320px;max-width:min(320px,calc(100vw - 24px));z-index:99999;pointer-events:auto}.theme-widget[hidden]{display:none !important}.theme-widget-body{padding:16px;border-radius:16px;border:1px solid var(--border-strong);background:var(--panel-strong);box-shadow:var(--shadow)}.theme-row{display:grid;gap:6px;margin-bottom:12px}.theme-inline{display:grid;grid-template-columns:1fr 1fr;gap:8px}.theme-btn-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}@media(max-width:1080px){.span-7,.span-5,.span-3{grid-column:span 12}.kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.inventory{grid-template-columns:1fr}}"
+    explorer_settings = explorer_settings or {}
+
+    css = ":root{color-scheme:light dark;--bg:#f4ecdf;--bg-grad-1:#f8f1e7;--bg-grad-2:#efe4d3;--panel:rgba(255,250,243,.82);--panel-strong:rgba(255,248,238,.94);--panel-soft:rgba(255,255,255,.46);--border:rgba(116,92,62,.16);--border-strong:rgba(116,92,62,.22);--text:#2f2418;--muted:#716250;--accent:#8b5e3c;--accent-2:#b6845e;--shadow:0 18px 45px rgba(110,84,53,.12);--pass-bg:rgba(73,143,96,.14);--pass-fg:#285a38;--timing-bg:rgba(190,143,45,.16);--timing-fg:#7d5b13;--signoff-bg:rgba(180,83,72,.14);--signoff-fg:#7b2f28;--mixed-bg:rgba(135,96,166,.14);--mixed-fg:#5b3f77;--flow-bg:rgba(120,115,108,.14);--flow-fg:#504a44;--radius-xl:28px;--radius-lg:20px;--radius-md:14px}body{margin:0;background:radial-gradient(circle at top left,var(--bg-grad-1)0%,transparent 36%),radial-gradient(circle at top right,var(--bg-grad-2)0%,transparent 28%),linear-gradient(180deg,var(--bg-grad-1)0%,var(--bg)100%);color:var(--text);font:15px/1.6 Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif}a{color:var(--accent);text-decoration:none}.wrap{max-width:1520px;margin:0 auto;padding:28px 20px 40px}.hero{background:var(--panel-strong);border:1px solid var(--border-strong);border-radius:var(--radius-xl);padding:30px;box-shadow:var(--shadow);margin-bottom:22px}.hero-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}.hero-copy{max-width:980px}.hero-copy p{margin:0}.settings-list{margin:12px 0 0;padding:0;list-style:none;display:grid;gap:6px;color:var(--muted);font-size:14px}.settings-list strong{color:var(--text)}.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:18px}.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius-lg);padding:22px;box-shadow:var(--shadow)}.span-12{grid-column:span 12}.span-7{grid-column:span 7}.span-5{grid-column:span 5}.span-4{grid-column:span 4}.span-3{grid-column:span 3}.kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.stat{background:var(--panel-soft);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px}.stat .label{color:var(--muted);font-size:12px;text-transform:uppercase}.stat .value{font-size:28px;font-weight:700}.metrics-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.metric-group{background:var(--panel-soft);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px}.metric-group h3{margin:0 0 12px;font-size:15px}.metric-pills{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.metric{padding:12px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.28)}.metric .label{color:var(--muted);font-size:11px;text-transform:uppercase}.metric .value{margin-top:4px;font-size:22px;font-weight:700;line-height:1.2}.table-card{padding:0;overflow:hidden}.table-head{display:flex;justify-content:space-between;align-items:center;padding:18px 20px;border-bottom:1px solid var(--border)}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:1180px}th,td{padding:14px 16px;border-bottom:1px solid var(--border)}th{background:rgba(255,248,240,.92);text-align:left;font-size:13px}.badge{display:inline-flex;align-items:center;justify-content:center;min-width:112px;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:700}.badge.pass{background:var(--pass-bg);color:var(--pass-fg)}.badge.timing{background:var(--timing-bg);color:var(--timing-fg)}.badge.signoff{background:var(--signoff-bg);color:var(--signoff-fg)}.badge.mixed{background:var(--mixed-bg);color:var(--mixed-fg)}.badge.flow{background:var(--flow-bg);color:var(--flow-fg)}.btn{display:inline-flex;align-items:center;justify-content:center;padding:8px 12px;border-radius:10px;border:1px solid rgba(139,94,60,.20);background:rgba(139,94,60,.08);color:var(--text);font-weight:600;font-size:13px}.btn.secondary{border-color:var(--border-strong);background:rgba(255,255,255,.08)}.actions{display:flex;gap:8px;flex-wrap:wrap}.theme-control{position:relative;z-index:40}.theme-launch{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:10px 14px;border-radius:12px;border:1px solid var(--border-strong);background:var(--panel-soft);color:var(--text);font:600 13px/1.2 Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif;cursor:pointer;box-shadow:none}.theme-widget{position:fixed;top:72px;right:24px;width:320px;max-width:min(320px,calc(100vw - 24px));z-index:99999;pointer-events:auto}.theme-widget[hidden]{display:none !important}.theme-widget-body{padding:16px;border-radius:16px;border:1px solid var(--border-strong);background:var(--panel-strong);box-shadow:var(--shadow)}.theme-widget-body h3{margin:0 0 12px;font-size:16px}.theme-row{display:grid;gap:6px;margin-bottom:12px}.theme-row label{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase}.theme-row select,.theme-row input,.theme-btn-row button{font:500 13px/1.2 Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--text)}.theme-row select{padding:10px 12px;border-radius:10px;border:1px solid var(--border-strong);background:var(--panel-soft)}.theme-row input[type='color']{width:100%;height:42px;padding:4px;border-radius:10px;border:1px solid var(--border-strong);background:var(--panel-soft)}.theme-inline{display:grid;grid-template-columns:1fr 1fr;gap:8px}.theme-btn-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}.theme-btn-row button{padding:10px 12px;border-radius:10px;border:1px solid var(--border-strong);background:var(--panel-soft);cursor:pointer}@media(max-width:1280px){.metrics-strip{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:1080px){.span-7,.span-5,.span-4,.span-3{grid-column:span 12}.kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.metrics-strip{grid-template-columns:1fr}}@media(max-width:720px){.metric-pills,.kpi-grid{grid-template-columns:1fr}}"
+
+    def setting_line(label: str, value: str) -> str:
+        return f'<li><strong>{html.escape(label)}:</strong> {html.escape(value)}</li>'
+
+    settings_html = "".join(
+        [
+            setting_line("Synthesis strategy", str(explorer_settings.get("synth_strategy", ""))),
+            setting_line("Antenna repair", str(explorer_settings.get("antenna_repair", ""))),
+            setting_line("Heuristic diode insertion", str(explorer_settings.get("heuristic_diode_insertion", ""))),
+            setting_line("Post-GRT design repair", str(explorer_settings.get("post_grt_design_repair", ""))),
+            setting_line("Post-GRT resizer timing", str(explorer_settings.get("post_grt_resizer_timing", ""))),
+        ]
+    )
+
+    def metric_group_html(title: str, items: List[Tuple[str, Any]]) -> str:
+        metrics_html = "".join(
+            f'<div class="metric"><div class="label">{html.escape(label)}</div><div class="value">{value_or_dash(value)}</div></div>'
+            for label, value in items
+        )
+        return f'<section class="metric-group"><h3>{html.escape(title)}</h3><div class="metric-pills">{metrics_html}</div></section>'
 
     for row in ordered:
         slug = f"{row.get('_variant','variant').replace('/','_')}__{row.get('_run_dir','run')}"
@@ -390,23 +443,15 @@ def build_site(site_root: Path, rows: List[Dict[str, str]]) -> None:
                 actions.append(link_button(name, f"Open {name}", secondary=True))
         actions.append(external_button(TT_GDS_VIEWER_URL, "Open GDS Viewer", secondary=True))
         preview = f'<section class="card span-12"><h2>Preview render</h2><img style="width:100%;max-height:520px;object-fit:contain;border-radius:14px;border:1px solid var(--border)" src="{html.escape(rnd_name)}" alt="Layout render preview"></section>' if rnd_name else ""
-        quick = [
-            ("Clock requested", f"{row.get('_clock_requested','')} ns"), ("Clock reported", f"{row.get('clock_ns_reported','')} ns"),
-            ("Setup WNS", f"{row.get('setup_wns_ns','')} ns"), ("Setup TNS", f"{row.get('setup_tns_ns','')} ns"),
-            ("Hold WNS", f"{row.get('hold_wns_ns','')} ns"), ("Hold TNS", f"{row.get('hold_tns_ns','')} ns"),
-            ("Core area", row.get('core_area_um2','')), ("Power total", row.get('power_total_W','')),
-        ]
-        quick_html = "".join(f'<div class="stat"><div class="label">{html.escape(k)}</div><div class="value">{value_or_dash(v)}</div></div>' for k, v in quick)
-        inv = [("metrics.csv", (run_dir / "metrics.csv").exists()), ("metrics_raw.json", (run_dir / "metrics_raw.json").exists()), ("run_meta.json", (run_dir / "run_meta.json").exists()), ("attempt_manifest.json", (run_dir / "attempt_manifest.json").exists()), ("attempt_started.txt", (run_dir / "attempt_started.txt").exists()), ("GDS copy", bool(gds_name)), ("Render preview", bool(rnd_name)), ("OpenLane run bundle", row.get("_openlane_run_present","no") == "yes")]
-        inv_html = "".join(f'<div class="item"><strong>{html.escape(k)}</strong><div>{"Present" if v else "Missing"}</div></div>' for k, v in inv)
-        meta_rows = [("Variant", row.get("_variant")), ("Run folder", row.get("_run_dir")), ("Artifact label", row.get("_artifact")), ("Attempt number", row.get("_attempt_number")), ("GitHub run ID", row.get("_github_run_id")), ("Synthesis override", row.get("_synth_strategy_override")), ("OpenLane run copied", row.get("_openlane_run_present"))]
-        timing_rows = [("clock_ns", row.get("clock_ns")), ("clock_ns_requested", row.get("_clock_requested")), ("clock_ns_reported", row.get("clock_ns_reported")), ("setup_wns_ns", row.get("setup_wns_ns")), ("setup_tns_ns", row.get("setup_tns_ns")), ("hold_wns_ns", row.get("hold_wns_ns")), ("hold_tns_ns", row.get("hold_tns_ns")), ("status", row.get("status"))]
-        physical_rows = [("core_area_um2", row.get("core_area_um2")), ("die_area_um2", row.get("die_area_um2")), ("instance_count", row.get("instance_count")), ("utilization_pct", row.get("utilization_pct")), ("wire_length_um", row.get("wire_length_um")), ("vias_count", row.get("vias_count"))]
-        power_rows = [("power_total_W", row.get("power_total_W")), ("power_internal_W", row.get("power_internal_W")), ("power_switching_W", row.get("power_switching_W")), ("power_leakage_W", row.get("power_leakage_W")), ("power_source", row.get("power_source")), ("power_fair_sta_rpt", row.get("power_fair_sta_rpt"))]
-        signoff_rows = [("drc_errors", row.get("drc_errors")), ("drc_errors_klayout", row.get("drc_errors_klayout")), ("drc_errors_magic", row.get("drc_errors_magic")), ("lvs_errors", row.get("lvs_errors")), ("antenna_violations", row.get("antenna_violations")), ("antenna_violating_nets", row.get("antenna_violating_nets")), ("antenna_violating_pins", row.get("antenna_violating_pins")), ("ir_drop_worst_V", row.get("ir_drop_worst_V"))]
+
+        timing_group = metric_group_html("Timing", [("Clock requested", f"{row.get('_clock_requested','')} ns"), ("Clock reported", f"{row.get('clock_ns_reported','')} ns"), ("Setup WNS", f"{row.get('setup_wns_ns','')} ns"), ("Setup TNS", f"{row.get('setup_tns_ns','')} ns"), ("Hold WNS", f"{row.get('hold_wns_ns','')} ns"), ("Hold TNS", f"{row.get('hold_tns_ns','')} ns")])
+        physical_group = metric_group_html("Physical", [("Core area", row.get('core_area_um2','')), ("Die area", row.get('die_area_um2','')), ("Instances", row.get('instance_count','')), ("Utilization", row.get('utilization_pct','')), ("Wire length", row.get('wire_length_um','')), ("Vias", row.get('vias_count',''))])
+        power_group = metric_group_html("Power", [("Total", row.get('power_total_W','')), ("Internal", row.get('power_internal_W','')), ("Switching", row.get('power_switching_W','')), ("Leakage", row.get('power_leakage_W','')), ("Source", row.get('power_source','')), ("FAIR STA rpt", row.get('power_fair_sta_rpt',''))])
+        signoff_group = metric_group_html("Signoff", [("DRC", row.get('drc_errors','')), ("KLayout DRC", row.get('drc_errors_klayout','')), ("Magic DRC", row.get('drc_errors_magic','')), ("LVS", row.get('lvs_errors','')), ("Antenna", row.get('antenna_violations','')), ("Worst IR drop", row.get('ir_drop_worst_V',''))])
+        meta_rows = [("Variant", row.get("_variant")), ("Run folder", row.get("_run_dir")), ("Artifact label", row.get("_artifact")), ("Attempt number", row.get("_attempt_number")), ("GitHub run ID", row.get("_github_run_id")), ("Synthesis override", row.get("_synth_strategy_override")), ("OpenLane run copied", row.get("_openlane_run_present")), ("Status", row.get("status")), ("Remarks", row.get("selection_reason"))]
         theme_widget = build_theme_widget("runAppearanceButton", "runThemeWidget")
         theme_script = build_theme_script("runAppearanceButton", "runThemeWidget", "asic-flow-theme")
-        run_html = f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><title>{title}</title><style>{css}</style></head><body><div class="wrap"><section class="hero"><div class="hero-head"><div><h1>{title}</h1><p>Enriched per-run detail page with timing, area, power, signoff, artifact inventory, and download links.</p></div>{theme_widget}</div></section><div class="grid"><section class="card span-5"><h2>Run status</h2><p>{badge_html(row.get('status',''))}</p><p><strong>Remarks:</strong> {html.escape(row.get('selection_reason',''))}</p><p><a class="btn secondary" href="../../index.html">Back to ASIC Flow Run Explorer</a></p></section><section class="card span-7"><h2>Download &amp; Tools</h2><div class="actions">{''.join(actions)}</div></section><section class="card span-12"><h2>Quick metrics</h2><div class="kpi-grid">{quick_html}</div></section>{preview}<section class="card span-12"><h2>Artifact inventory</h2><div class="inventory">{inv_html}</div></section><section class="card span-3 table-card"><div class="table-head"><h2>Metadata</h2></div><div class="table-wrap"><table><tr><th>Field</th><th>Value</th></tr>{kv_rows(meta_rows)}</table></div></section><section class="card span-3 table-card"><div class="table-head"><h2>Timing</h2></div><div class="table-wrap"><table><tr><th>Metric</th><th>Value</th></tr>{kv_rows(timing_rows)}</table></div></section><section class="card span-3 table-card"><div class="table-head"><h2>Physical</h2></div><div class="table-wrap"><table><tr><th>Metric</th><th>Value</th></tr>{kv_rows(physical_rows)}</table></div></section><section class="card span-3 table-card"><div class="table-head"><h2>Power</h2></div><div class="table-wrap"><table><tr><th>Metric</th><th>Value</th></tr>{kv_rows(power_rows)}</table></div></section><section class="card span-12 table-card"><div class="table-head"><h2>Signoff and integrity</h2></div><div class="table-wrap"><table><tr><th>Metric</th><th>Value</th></tr>{kv_rows(signoff_rows)}</table></div></section></div></div>{theme_script}</body></html>'''
+        run_html = f"""<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>{title}</title><style>{css}</style></head><body><div class=\"wrap\"><section class=\"hero\"><div class=\"hero-head\"><div class=\"hero-copy\"><h1>{title}</h1><p>Enriched per-run detail page with timing, physical, power, signoff, and download links.</p></div>{theme_widget}</div></section><div class=\"grid\"><section class=\"card span-5\"><h2>Run status</h2><p>{badge_html(row.get('status',''))}</p><p><strong>Remarks:</strong> {html.escape(row.get('selection_reason',''))}</p><p><a class=\"btn secondary\" href=\"../../index.html\">Back to ASIC Flow Run Explorer</a></p></section><section class=\"card span-7\"><h2>Download &amp; Tools</h2><div class=\"actions\">{''.join(actions)}</div></section><section class=\"card span-12\"><h2>Metrics by category</h2><div class=\"metrics-strip\">{timing_group}{physical_group}{power_group}{signoff_group}</div></section>{preview}<section class=\"card span-12 table-card\"><div class=\"table-head\"><h2>Metadata</h2></div><div class=\"table-wrap\"><table><tr><th>Field</th><th>Value</th></tr>{kv_rows(meta_rows)}</table></div></section></div></div>{theme_script}</body></html>"""
         (run_dir / "index.html").write_text(run_html, encoding="utf-8")
 
     best = ordered[0] if ordered else {}
@@ -422,9 +467,8 @@ def build_site(site_root: Path, rows: List[Dict[str, str]]) -> None:
     best_text = ""
     if best:
         best_text = f'<section class="card span-7"><h2>Chosen best run</h2><p><strong>Run:</strong> {html.escape(str(best.get("_variant","")))} / {html.escape(str(best.get("_run_dir","")))}</p><p><strong>Clock:</strong> {html.escape(str(best.get("clock_ns","")))} ns</p><p><strong>Status:</strong> {badge_html(best.get("status",""))}</p><p><strong>Remarks:</strong> {html.escape(str(best.get("selection_reason","")))}</p></section>'
-    index_html = f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><title>ASIC Flow Run Explorer</title><style>{css}</style></head><body><div class="wrap"><section class="hero"><div class="hero-head"><div><h1>ASIC Flow Run Explorer</h1><p>Published summary of all collected runs, richer per-run metrics, and direct access to downloadable layout data.</p></div>{theme_widget}</div></section><div class="grid"><section class="card span-5"><h2>Selection order</h2><ol><li>Clean signoff plus non-negative setup timing wins.</li><li>If no full PASS exists, clean signoff wins over signoff violations.</li><li>Among comparable runs, lower requested clock period is preferred.</li><li>Setup WNS/TNS are used as tie-breakers.</li></ol></section>{best_text}<section class="card span-12"><h2>Run overview</h2><div class="kpi-grid"><div class="stat"><div class="label">Total runs</div><div class="value">{len(ordered)}</div></div><div class="stat"><div class="label">PASS runs</div><div class="value">{sum(1 for r in ordered if r.get("status") == "PASS")}</div></div><div class="stat"><div class="label">Non-pass runs</div><div class="value">{sum(1 for r in ordered if r.get("status") != "PASS")}</div></div><div class="stat"><div class="label">Best clock</div><div class="value">{html.escape(str(best.get("clock_ns","")))}</div></div></div></section></div><section class="card table-card"><div class="table-head"><h2>All runs</h2><span>Top row is the selected best run</span></div><div class="table-wrap"><table><thead><tr><th>Selected</th><th>Run</th><th>Clock (ns)</th><th>Setup WNS</th><th>Setup TNS</th><th>Core area</th><th>Total power</th><th>DRC</th><th>LVS</th><th>Antenna</th><th>IR drop</th><th>Status</th><th>Remarks</th><th>GDS</th><th>GDS Viewer</th></tr></thead><tbody>{''.join(rows_html)}</tbody></table></div></section></div>{theme_script}</body></html>'''
+    index_html = f"""<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>ASIC Flow Run Explorer</title><style>{css}</style></head><body><div class=\"wrap\"><section class=\"hero\"><div class=\"hero-head\"><div class=\"hero-copy\"><h1>ASIC Flow Run Explorer</h1><p>Published summary of all collected runs, richer per-run metrics, and direct access to downloadable layout data.</p><ul class=\"settings-list\">{settings_html}</ul></div>{theme_widget}</div></section><div class=\"grid\"><section class=\"card span-5\"><h2>Selection order</h2><ol><li>Clean signoff plus non-negative setup timing wins.</li><li>If no full PASS exists, clean signoff wins over signoff violations.</li><li>Among comparable runs, lower requested clock period is preferred.</li><li>Setup WNS/TNS are used as tie-breakers.</li></ol></section>{best_text}<section class=\"card span-12\"><h2>Run overview</h2><div class=\"kpi-grid\"><div class=\"stat\"><div class=\"label\">Total runs</div><div class=\"value\">{len(ordered)}</div></div><div class=\"stat\"><div class=\"label\">PASS runs</div><div class=\"value\">{sum(1 for r in ordered if r.get("status") == "PASS")}</div></div><div class=\"stat\"><div class=\"label\">Non-pass runs</div><div class=\"value\">{sum(1 for r in ordered if r.get("status") != "PASS")}</div></div><div class=\"stat\"><div class=\"label\">Best clock</div><div class=\"value\">{html.escape(str(best.get("clock_ns","")))}</div></div></div></section></div><section class=\"card table-card\"><div class=\"table-head\"><h2>All runs</h2><span>Top row is the selected best run</span></div><div class=\"table-wrap\"><table><thead><tr><th>Selected</th><th>Run</th><th>Clock (ns)</th><th>Setup WNS</th><th>Setup TNS</th><th>Core area</th><th>Total power</th><th>DRC</th><th>LVS</th><th>Antenna</th><th>IR drop</th><th>Status</th><th>Remarks</th><th>GDS</th><th>GDS Viewer</th></tr></thead><tbody>{''.join(rows_html)}</tbody></table></div></section></div>{theme_script}</body></html>"""
     (site_root / "index.html").write_text(index_html, encoding="utf-8")
-
 
 def main() -> None:
     ap = argparse.ArgumentParser()
@@ -436,6 +480,11 @@ def main() -> None:
     ap.add_argument("--site-dir", type=Path, default=Path("_site"))
     ap.add_argument("--repo-slug", default="")
     ap.add_argument("--run-id", default="")
+    ap.add_argument("--summary-synth-strategy", default="")
+    ap.add_argument("--summary-antenna-repair", default="")
+    ap.add_argument("--summary-heuristic-diode-insertion", default="")
+    ap.add_argument("--summary-post-grt-design-repair", default="")
+    ap.add_argument("--summary-post-grt-resizer-timing", default="")
     args = ap.parse_args()
 
     rows = collect_rows(args.artifacts_root)
@@ -443,7 +492,17 @@ def main() -> None:
     write_summary_md(args.summary_md, rows)
     best = write_best_json(args.best_json, rows)
     package_best_bundle(args.best_bundle_dir, best)
-    build_site(args.site_dir, rows)
+    build_site(
+        args.site_dir,
+        rows,
+        explorer_settings={
+            "synth_strategy": args.summary_synth_strategy,
+            "antenna_repair": args.summary_antenna_repair,
+            "heuristic_diode_insertion": args.summary_heuristic_diode_insertion,
+            "post_grt_design_repair": args.summary_post_grt_design_repair,
+            "post_grt_resizer_timing": args.summary_post_grt_resizer_timing,
+        },
+    )
 
 
 if __name__ == "__main__":
