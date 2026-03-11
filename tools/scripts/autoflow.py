@@ -364,12 +364,12 @@ def write_history_files(out_root: Path, history: List[Dict[str, Any]]) -> None:
     (out_root / "autoflow_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def compute_bounds(pass_clocks: Sequence[float], usable_fail_clocks: Sequence[float]) -> Tuple[Optional[float], Optional[float]]:
+def compute_bounds(pass_clocks: Sequence[float], fail_clocks: Sequence[float]) -> Tuple[Optional[float], Optional[float]]:
     pass_bound = min(pass_clocks) if pass_clocks else None
     if pass_bound is None:
         return None, None
 
-    lower_fails = [f for f in usable_fail_clocks if f < pass_bound]
+    lower_fails = [f for f in fail_clocks if f < pass_bound]
     fail_bound = max(lower_fails) if lower_fails else None
     return pass_bound, fail_bound
 
@@ -456,8 +456,10 @@ def choose_next_clock(
     tested = {round(v, 6) for v in tested_clocks}
     pass_bound, fail_bound = compute_bounds(pass_clocks, usable_fail_clocks)
 
-    if pass_bound is None and flow_fail_clocks and not usable_fail_clocks:
-        return None, step_index, "Stopping because no usable pass/fail timing evidence was produced and at least one FLOW_FAIL occurred."
+    provisional_flow_fail_bound: Optional[float] = None
+    if pass_bound is not None:
+        lower_flow_fails = [f for f in flow_fail_clocks if f < pass_bound]
+        provisional_flow_fail_bound = max(lower_flow_fails) if lower_flow_fails else None
 
     while True:
         current_step = step_sequence[step_index]
@@ -474,7 +476,13 @@ def choose_next_clock(
                 return None, step_index, f"Stopping because no passing point was found before the max clock cap {max_clock_ns} ns."
             return candidate, step_index, f"No pass found yet, so search upward at the current {current_step} ns step."
 
-        if fail_bound is None:
+        effective_fail_bound = fail_bound
+        effective_fail_kind = "usable"
+        if effective_fail_bound is None and provisional_flow_fail_bound is not None:
+            effective_fail_bound = provisional_flow_fail_bound
+            effective_fail_kind = "flow"
+
+        if effective_fail_bound is None:
             candidate = next_downward_candidate_no_fail(
                 pass_bound=pass_bound,
                 step=current_step,
@@ -485,21 +493,27 @@ def choose_next_clock(
                 return None, step_index, f"Reached the minimum clock floor {min_clock_ns} ns with no failure below the current best pass {pass_bound} ns."
             return candidate, step_index, f"No failure below the current best pass {pass_bound} ns, so keep searching downward at {current_step} ns step."
 
-        interval = round(pass_bound - fail_bound, 6)
+        interval = round(pass_bound - effective_fail_bound, 6)
         if interval <= tolerance_ns:
-            return None, step_index, f"Stopping because the pass/fail bracket [{fail_bound}, {pass_bound}] ns is within tolerance {tolerance_ns} ns."
+            if effective_fail_kind == "flow":
+                return None, step_index, f"Stopping because the provisional pass/FLOW_FAIL bracket [{effective_fail_bound}, {pass_bound}] ns is within tolerance {tolerance_ns} ns."
+            return None, step_index, f"Stopping because the pass/fail bracket [{effective_fail_bound}, {pass_bound}] ns is within tolerance {tolerance_ns} ns."
 
         candidate = next_downward_candidate_within_bracket(
             pass_bound=pass_bound,
-            fail_bound=fail_bound,
+            fail_bound=effective_fail_bound,
             step=current_step,
             tested=tested,
         )
         if candidate is not None:
-            return candidate, step_index, f"Refining inside bracket [{fail_bound}, {pass_bound}] ns at the current {current_step} ns step."
+            if effective_fail_kind == "flow":
+                return candidate, step_index, f"Using provisional FLOW_FAIL boundary [{effective_fail_bound}, {pass_bound}] ns and refining at the current {current_step} ns step."
+            return candidate, step_index, f"Refining inside bracket [{effective_fail_bound}, {pass_bound}] ns at the current {current_step} ns step."
 
         if step_index + 1 >= len(step_sequence):
-            return None, step_index, f"Stopping because no further untested candidates remain inside bracket [{fail_bound}, {pass_bound}] ns at the finest configured step {current_step} ns."
+            if effective_fail_kind == "flow":
+                return None, step_index, f"Stopping because no further untested candidates remain inside provisional FLOW_FAIL bracket [{effective_fail_bound}, {pass_bound}] ns at the finest configured step {current_step} ns."
+            return None, step_index, f"Stopping because no further untested candidates remain inside bracket [{effective_fail_bound}, {pass_bound}] ns at the finest configured step {current_step} ns."
 
         step_index += 1
 

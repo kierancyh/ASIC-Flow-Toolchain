@@ -74,6 +74,7 @@ def build_theme_script(button_id: str, panel_id: str, storage_key: str) -> str:
   const button = document.getElementById("{button_id}");
   const panel = document.getElementById("{panel_id}");
   if (!root || !button || !panel) return;
+  document.body.appendChild(panel);
 
   const presetTheme = document.getElementById("{panel_id}_preset");
   const bgColor = document.getElementById("{panel_id}_bg");
@@ -345,6 +346,12 @@ def classify_status(row: Dict[str, str]) -> str:
     if raw_status in {"FLOW_FAIL", "INCOMPLETE"}:
         return "FLOW_FAIL"
 
+    swns = to_float(row.get("setup_wns_ns"))
+    stns = to_float(row.get("setup_tns_ns"))
+    timing_present = swns is not None and stns is not None
+    if not timing_present:
+        return "FLOW_FAIL"
+
     clean = signoff_clean(row)
     ok = timing_ok(row)
 
@@ -358,6 +365,10 @@ def classify_status(row: Dict[str, str]) -> str:
 
 
 def explain_row(row: Dict[str, str]) -> str:
+    raw_status = str(row.get("status", "")).strip().upper()
+    if raw_status in {"FLOW_FAIL", "INCOMPLETE"}:
+        return "Flow failed before valid timing metrics were produced."
+
     reasons: List[str] = []
 
     swns = to_float(row.get("setup_wns_ns"))
@@ -640,7 +651,7 @@ def build_site(site_root: Path, rows: List[Dict[str, str]]) -> None:
   --border: rgba(116, 92, 62, 0.16);
   --border-strong: rgba(116, 92, 62, 0.22);
   --text: #2f2418;
-  --muted": #716250;
+  --muted: #716250;
   --accent: #8b5e3c;
   --accent-2: #b6845e;
   --shadow: 0 18px 45px rgba(110, 84, 53, 0.12);
@@ -882,8 +893,11 @@ tr:hover td{background:rgba(255,255,255,0.06)}
   right:24px;
   width:320px;
   max-width:min(320px, calc(100vw - 24px));
-  z-index:5000;
+  z-index:99999;
+  pointer-events:auto;
 }
+.theme-widget[hidden]{display:none !important;}
+
 .theme-widget-body{
   padding:16px;
   border-radius:16px;
