@@ -97,7 +97,6 @@ permissions:
 
 env:
   PYTHONUNBUFFERED: "1"
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   plan:
@@ -124,9 +123,9 @@ jobs:
       summary_synth_strategy: ${{ steps.summary_synth.outputs.summary_synth_strategy }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -380,7 +379,7 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install volare pyyaml
       - name: Restore PDK cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ github.workspace }}/.volare
           key: ${{ runner.os }}-sky130-volare-${{ needs.plan.outputs.open_pdks_rev }}
@@ -428,7 +427,7 @@ jobs:
             --out-root "ci_out/${VARIANT}"
       - name: Upload coarse artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coarse-${{ needs.plan.outputs.resolved_variant }}-${{ matrix.clock_ns }}ns
           path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
@@ -452,7 +451,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Download accumulated artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: downloaded_artifacts
       - name: Select coarse bracket
@@ -941,7 +940,12 @@ jobs:
             --best-bundle-dir best-layout-bundle \
             --site-dir _site \
             --repo-slug "${{ github.repository }}" \
-            --run-id "${{ github.run_id }}"
+            --run-id "${{ github.run_id }}" \
+            --summary-synth-strategy "${{ needs.plan.outputs.summary_synth_strategy }}" \
+            --summary-antenna-repair "${{ needs.plan.outputs.summary_antenna_repair }}" \
+            --summary-heuristic-diode-insertion "${{ needs.plan.outputs.summary_heuristic_diode_insertion }}" \
+            --summary-post-grt-design-repair "${{ needs.plan.outputs.summary_post_grt_design_repair }}" \
+            --summary-post-grt-resizer-timing "${{ needs.plan.outputs.summary_post_grt_resizer_timing }}"
       - name: Validate explorer outputs
         run: |
           test -f _compare_summary.md
