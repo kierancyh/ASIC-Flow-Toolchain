@@ -21,28 +21,23 @@ on:
         required: false
         default: "20"
         type: string
-      coarse_steps:
-        description: 'Number of coarse +/- levels around the baseline'
-        required: false
-        default: "5"
-        type: string
       mid_refine_step_ns:
         description: 'Mid refine stage step in ns'
         required: false
         default: "5.0"
         type: string
       refine1_step_ns:
-        description: 'Adaptive refine stage 1 step in ns'
+        description: 'Refine stage 1 step in ns'
         required: false
         default: "1.0"
         type: string
       refine2_step_ns:
-        description: 'Adaptive refine stage 2 step in ns'
+        description: 'Refine stage 2 step in ns'
         required: false
         default: "0.5"
         type: string
       refine3_step_ns:
-        description: 'Adaptive refine stage 3 step in ns'
+        description: 'Refine stage 3 step in ns'
         required: false
         default: "0.125"
         type: string
@@ -50,11 +45,6 @@ on:
         description: 'Final stop tolerance in ns'
         required: false
         default: "0.125"
-        type: string
-      max_iters:
-        description: 'Hard cap on adaptive refine attempts'
-        required: false
-        default: "40"
         type: string
       synth_strategy:
         description: 'Optional synthesis strategy override (leave blank to use variant/OpenLane defaults)'
@@ -66,42 +56,34 @@ on:
         required: false
         default: "true"
         type: choice
-        options:
-          - "true"
-          - "false"
+        options: ["true", "false"]
       run_heuristic_diode_insertion:
         description: 'OpenLane RUN_HEURISTIC_DIODE_INSERTION'
         required: false
         default: "true"
         type: choice
-        options:
-          - "true"
-          - "false"
+        options: ["true", "false"]
       run_post_grt_design_repair:
         description: 'OpenLane RUN_POST_GRT_DESIGN_REPAIR'
         required: false
         default: "true"
         type: choice
-        options:
-          - "true"
-          - "false"
+        options: ["true", "false"]
       run_post_grt_resizer_timing:
         description: 'OpenLane RUN_POST_GRT_RESIZER_TIMING'
         required: false
         default: "false"
         type: choice
-        options:
-          - "true"
-          - "false"
+        options: ["true", "false"]
       openlane_image:
         description: 'Docker image for OpenLane2'
         required: false
-        default: "ghcr.io/efabless/openlane2:2.4.0.dev1"
+        default: 'ghcr.io/efabless/openlane2:2.4.0.dev1'
         type: string
       open_pdks_rev:
         description: 'Volare open_pdks revision for sky130'
         required: false
-        default: "cd1748bb197f9b7af62a54507de6624e30363943"
+        default: 'cd1748bb197f9b7af62a54507de6624e30363943'
         type: string
 
 concurrency:
@@ -126,15 +108,12 @@ jobs:
       max_clock_ns: ${{ steps.cap.outputs.max_clock_ns }}
       min_clock_ns: ${{ steps.sweep.outputs.min_clock_ns }}
       coarse_step_ns: ${{ steps.sweep.outputs.coarse_step_ns }}
-      coarse_steps: ${{ steps.sweep.outputs.coarse_steps }}
       coarse_matrix_json: ${{ steps.coarse.outputs.coarse_matrix_json }}
       mid_refine_step_ns: ${{ steps.sweep.outputs.mid_refine_step_ns }}
       refine1_step_ns: ${{ steps.sweep.outputs.refine1_step_ns }}
       refine2_step_ns: ${{ steps.sweep.outputs.refine2_step_ns }}
       refine3_step_ns: ${{ steps.sweep.outputs.refine3_step_ns }}
-      adaptive_refine_steps_ns: ${{ steps.sweep.outputs.adaptive_refine_steps_ns }}
       tolerance_ns: ${{ steps.sweep.outputs.tolerance_ns }}
-      max_iters: ${{ steps.sweep.outputs.max_iters }}
       openlane_image: ${{ steps.tools.outputs.openlane_image }}
       open_pdks_rev: ${{ steps.tools.outputs.open_pdks_rev }}
       summary_antenna_repair: ${{ steps.summary_knobs.outputs.antenna_repair }}
@@ -148,7 +127,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
       - name: Install plan dependencies
         run: |
@@ -165,16 +144,16 @@ jobs:
           from pathlib import Path
           import yaml
 
-          manifest = yaml.safe_load(Path("manifest.yaml").read_text(encoding="utf-8")) or {}
-          experiments = manifest.get("experiments", []) or []
+          manifest = yaml.safe_load(Path('manifest.yaml').read_text(encoding='utf-8')) or {}
+          experiments = manifest.get('experiments', []) or []
 
-          requested = os.environ.get("INPUT_VARIANT", "").strip()
-          resolved = ""
+          requested = os.environ.get('INPUT_VARIANT', '').strip()
+          resolved = ''
 
           if requested:
               for exp in experiments:
-                  variant = str(exp.get("variant", "")).strip()
-                  safe = variant.replace("/", "_")
+                  variant = str(exp.get('variant', '')).strip()
+                  safe = variant.replace('/', '_')
                   if requested in (variant, safe):
                       resolved = safe
                       break
@@ -182,15 +161,15 @@ jobs:
                   resolved = requested
           else:
               for exp in experiments:
-                  if exp.get("enabled", True) and exp.get("variant"):
-                      resolved = str(exp["variant"]).replace("/", "_")
+                  if exp.get('enabled', True) and exp.get('variant'):
+                      resolved = str(exp['variant']).replace('/', '_')
                       break
 
           if not resolved:
-              raise SystemExit("No enabled variant found in manifest.yaml")
+              raise SystemExit('No enabled variant found in manifest.yaml')
 
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
-              print(f"resolved_variant={resolved}", file=f)
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
+              print(f'resolved_variant={resolved}', file=f)
           PY
 
       - name: Resolve tool versions
@@ -233,39 +212,39 @@ jobs:
           from pathlib import Path
           import yaml
 
-          root = Path(".")
-          resolved_variant = os.environ.get("RESOLVED_VARIANT", "").strip()
-          input_synth = os.environ.get("INPUT_SYNTH_STRATEGY", "").strip()
+          root = Path('.')
+          resolved_variant = os.environ.get('RESOLVED_VARIANT', '').strip()
+          input_synth = os.environ.get('INPUT_SYNTH_STRATEGY', '').strip()
 
-          manifest = yaml.safe_load((root / "manifest.yaml").read_text(encoding="utf-8")) or {}
+          manifest = yaml.safe_load((root / 'manifest.yaml').read_text(encoding='utf-8')) or {}
           variant_path = None
           candidate = root / resolved_variant
-          if candidate.is_dir() and (candidate / "variant.yaml").exists():
+          if candidate.is_dir() and (candidate / 'variant.yaml').exists():
               variant_path = candidate
           else:
-              for exp in manifest.get("experiments", []) or []:
-                  variant = str(exp.get("variant", "")).strip()
-                  safe = variant.replace("/", "_")
+              for exp in manifest.get('experiments', []) or []:
+                  variant = str(exp.get('variant', '')).strip()
+                  safe = variant.replace('/', '_')
                   if resolved_variant in (variant, safe):
                       path = root / variant
-                      if path.is_dir() and (path / "variant.yaml").exists():
+                      if path.is_dir() and (path / 'variant.yaml').exists():
                           variant_path = path
                           break
 
-          variant_override = ""
+          variant_override = ''
           if variant_path is not None:
-              cfg = yaml.safe_load((variant_path / "variant.yaml").read_text(encoding="utf-8")) or {}
-              variant_override = str(((cfg.get("ll_policy") or {}).get("synth_strategy") or "")).strip()
+              cfg = yaml.safe_load((variant_path / 'variant.yaml').read_text(encoding='utf-8')) or {}
+              variant_override = str(((cfg.get('ll_policy') or {}).get('synth_strategy') or '')).strip()
 
           if input_synth:
-              label = f"{input_synth} (workflow override)"
+              label = f'{input_synth} (workflow override)'
           elif variant_override:
-              label = f"{variant_override} (variant.yaml ll_policy.synth_strategy)"
+              label = f'{variant_override} (variant.yaml ll_policy.synth_strategy)'
           else:
-              label = "Default (not overridden)"
+              label = 'Default (not overridden)'
 
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
-              print(f"summary_synth_strategy={label}", file=f)
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
+              print(f'summary_synth_strategy={label}', file=f)
           PY
 
       - name: Resolve sweep parameters
@@ -274,83 +253,65 @@ jobs:
           INPUT_MIN_CLOCK_NS: ${{ github.event.inputs.min_clock_ns }}
           INPUT_MAX_CLOCK_NS_CAP: ${{ steps.cap.outputs.max_clock_ns }}
           INPUT_INITIAL_STEP_NS: ${{ github.event.inputs.initial_step_ns }}
-          INPUT_COARSE_STEPS: ${{ github.event.inputs.coarse_steps }}
           INPUT_MID_REFINE_STEP_NS: ${{ github.event.inputs.mid_refine_step_ns }}
           INPUT_REFINE1_STEP_NS: ${{ github.event.inputs.refine1_step_ns }}
           INPUT_REFINE2_STEP_NS: ${{ github.event.inputs.refine2_step_ns }}
           INPUT_REFINE3_STEP_NS: ${{ github.event.inputs.refine3_step_ns }}
           INPUT_TOLERANCE_NS: ${{ github.event.inputs.tolerance_ns }}
-          INPUT_MAX_ITERS: ${{ github.event.inputs.max_iters }}
         run: |
           python - <<'PY'
           import os
 
-          min_clock = max(0.0, float(os.environ.get("INPUT_MIN_CLOCK_NS", "") or "0"))
-          max_clock = float(os.environ.get("INPUT_MAX_CLOCK_NS_CAP", "") or "0")
-          coarse_step = float(os.environ.get("INPUT_INITIAL_STEP_NS", "") or "20")
-          coarse_steps = int(os.environ.get("INPUT_COARSE_STEPS", "") or "5")
-          mid_refine = float(os.environ.get("INPUT_MID_REFINE_STEP_NS", "") or "5.0")
-          refine1 = float(os.environ.get("INPUT_REFINE1_STEP_NS", "") or "1.0")
-          refine2 = float(os.environ.get("INPUT_REFINE2_STEP_NS", "") or "0.5")
-          refine3 = float(os.environ.get("INPUT_REFINE3_STEP_NS", "") or "0.125")
-          tolerance = float(os.environ.get("INPUT_TOLERANCE_NS", "") or "0.125")
-          max_iters = int(os.environ.get("INPUT_MAX_ITERS", "") or "40")
+          min_clock = max(0.0, float(os.environ.get('INPUT_MIN_CLOCK_NS', '') or '0'))
+          max_clock = float(os.environ.get('INPUT_MAX_CLOCK_NS_CAP', '') or '0')
+          coarse_step = float(os.environ.get('INPUT_INITIAL_STEP_NS', '') or '20')
+          mid_refine = float(os.environ.get('INPUT_MID_REFINE_STEP_NS', '') or '5.0')
+          refine1 = float(os.environ.get('INPUT_REFINE1_STEP_NS', '') or '1.0')
+          refine2 = float(os.environ.get('INPUT_REFINE2_STEP_NS', '') or '0.5')
+          refine3 = float(os.environ.get('INPUT_REFINE3_STEP_NS', '') or '0.125')
+          tolerance = float(os.environ.get('INPUT_TOLERANCE_NS', '') or '0.125')
 
           if max_clock <= 0:
-              raise SystemExit("max_ns_cap in variant.yaml must be > 0")
+              raise SystemExit('max_ns_cap in variant.yaml must be > 0')
           if max_clock < min_clock:
-              raise SystemExit("max_ns_cap must be >= min_clock_ns")
-          if coarse_step <= 0:
-              raise SystemExit("initial_step_ns must be > 0")
-          if coarse_steps < 0:
-              raise SystemExit("coarse_steps must be >= 0")
-          if min(mid_refine, refine1, refine2, refine3) <= 0:
-              raise SystemExit("refine step values must be > 0")
+              raise SystemExit('max_ns_cap must be >= min_clock_ns')
+          if min(coarse_step, mid_refine, refine1, refine2, refine3) <= 0:
+              raise SystemExit('all stage step values must be > 0')
           if not (coarse_step >= mid_refine >= refine1 >= refine2 >= refine3):
-              raise SystemExit("stages must satisfy coarse >= mid_refine >= refine1 >= refine2 >= refine3")
+              raise SystemExit('stages must satisfy coarse >= mid_refine >= refine1 >= refine2 >= refine3')
           if tolerance <= 0:
-              raise SystemExit("tolerance_ns must be > 0")
+              raise SystemExit('tolerance_ns must be > 0')
           if tolerance > refine3:
-              raise SystemExit("tolerance_ns should be <= refine3_step_ns for the final stage")
-          if max_iters <= 0:
-              raise SystemExit("max_iters must be > 0")
+              raise SystemExit('tolerance_ns should be <= refine3_step_ns for the final stage')
 
           def fmt(v: float) -> str:
               if float(v).is_integer():
                   return str(int(v))
               return str(round(v, 6))
 
-          adaptive_refine_steps_ns = ",".join([fmt(refine2), fmt(refine3)])
-
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
-              print(f"min_clock_ns={fmt(min_clock)}", file=f)
-              print(f"max_clock_ns={fmt(max_clock)}", file=f)
-              print(f"coarse_step_ns={fmt(coarse_step)}", file=f)
-              print(f"coarse_steps={coarse_steps}", file=f)
-              print(f"mid_refine_step_ns={fmt(mid_refine)}", file=f)
-              print(f"refine1_step_ns={fmt(refine1)}", file=f)
-              print(f"refine2_step_ns={fmt(refine2)}", file=f)
-              print(f"refine3_step_ns={fmt(refine3)}", file=f)
-              print(f"adaptive_refine_steps_ns={adaptive_refine_steps_ns}", file=f)
-              print(f"tolerance_ns={fmt(tolerance)}", file=f)
-              print(f"max_iters={max_iters}", file=f)
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
+              print(f'min_clock_ns={fmt(min_clock)}', file=f)
+              print(f'coarse_step_ns={fmt(coarse_step)}', file=f)
+              print(f'mid_refine_step_ns={fmt(mid_refine)}', file=f)
+              print(f'refine1_step_ns={fmt(refine1)}', file=f)
+              print(f'refine2_step_ns={fmt(refine2)}', file=f)
+              print(f'refine3_step_ns={fmt(refine3)}', file=f)
+              print(f'tolerance_ns={fmt(tolerance)}', file=f)
           PY
 
-      - name: Resolve coarse auto matrix
+      - name: Resolve full-span coarse matrix
         id: coarse
         env:
           START_CLOCK_NS: ${{ steps.start.outputs.start_clock_ns }}
           MIN_CLOCK_NS: ${{ steps.sweep.outputs.min_clock_ns }}
-          MAX_CLOCK_NS: ${{ steps.sweep.outputs.max_clock_ns }}
+          MAX_CLOCK_NS: ${{ steps.cap.outputs.max_clock_ns }}
           COARSE_STEP_NS: ${{ steps.sweep.outputs.coarse_step_ns }}
-          COARSE_STEPS: ${{ steps.sweep.outputs.coarse_steps }}
         run: |
           COARSE_MATRIX_JSON="$(python tools/scripts/make_clock_matrix.py \
             --start-clock-ns "${START_CLOCK_NS}" \
             --min-clock-ns "${MIN_CLOCK_NS}" \
             --max-clock-ns "${MAX_CLOCK_NS}" \
-            --step-ns "${COARSE_STEP_NS}" \
-            --coarse-steps "${COARSE_STEPS}")"
+            --step-ns "${COARSE_STEP_NS}")"
           echo "coarse_matrix_json=${COARSE_MATRIX_JSON}" >> "$GITHUB_OUTPUT"
 
       - name: Resolve summary knob labels
@@ -368,7 +329,6 @@ jobs:
               *) echo "${1:-}" ;;
             esac
           }
-
           {
             echo "antenna_repair=$(to_label "${INPUT_RUN_ANTENNA_REPAIR:-true}")"
             echo "heuristic_diode_insertion=$(to_label "${INPUT_RUN_HEURISTIC_DIODE_INSERTION:-true}")"
@@ -383,17 +343,14 @@ jobs:
             echo ""
             echo "- Variant: \`${{ steps.resolve.outputs.resolved_variant }}\`"
             echo "- Baseline clock_ns: \`${{ steps.start.outputs.start_clock_ns }}\`"
-            echo "- Minimum clock floor: \`${{ steps.sweep.outputs.min_clock_ns }} ns\`"
-            echo "- Clock cap from variant.yaml: \`${{ steps.cap.outputs.max_clock_ns }} ns\`"
-            echo "- Coarse step: \`${{ steps.sweep.outputs.coarse_step_ns }} ns\`"
-            echo "- Coarse levels each side: \`${{ steps.sweep.outputs.coarse_steps }}\`"
-            echo "- Initial coarse matrix: \`${{ steps.coarse.outputs.coarse_matrix_json }}\`"
-            echo "- Mid refine stage: \`${{ steps.sweep.outputs.mid_refine_step_ns }} ns\`"
-            echo "- Adaptive initial refine step: \`${{ steps.sweep.outputs.refine1_step_ns }} ns\`"
-            echo "- Adaptive remaining refine steps: \`${{ steps.sweep.outputs.adaptive_refine_steps_ns }} ns\`"
+            echo "- Coarse sweep: full span from \`${{ steps.sweep.outputs.min_clock_ns }} ns\` to \`${{ steps.cap.outputs.max_clock_ns }} ns\` at \`${{ steps.sweep.outputs.coarse_step_ns }} ns\`"
+            echo "- Coarse matrix: \`${{ steps.coarse.outputs.coarse_matrix_json }}\`"
+            echo "- Mid refine downward step: \`${{ steps.sweep.outputs.mid_refine_step_ns }} ns\`"
+            echo "- Refine stage 1: \`${{ steps.sweep.outputs.refine1_step_ns }} ns\`"
+            echo "- Refine stage 2: \`${{ steps.sweep.outputs.refine2_step_ns }} ns\`"
+            echo "- Refine stage 3: \`${{ steps.sweep.outputs.refine3_step_ns }} ns\`"
             echo "- Tolerance: \`${{ steps.sweep.outputs.tolerance_ns }} ns\`"
-            echo "- Max adaptive attempts: \`${{ steps.sweep.outputs.max_iters }}\`"
-            echo "- Search policy: symmetric coarse matrix, then 5 ns downward matrix inside the coarse bracket, then adaptive fine refine inside the tighter bracket"
+            echo "- Search policy: full coarse span to clock cap, then fastest PASS / highest FAIL bracket, then downward matrix refinement at 5 ns, 1 ns, 0.5 ns, and 0.125 ns"
             echo "- Synthesis strategy: \`${{ steps.summary_synth.outputs.summary_synth_strategy }}\`"
             echo "- Antenna repair: \`${{ steps.summary_knobs.outputs.antenna_repair }}\`"
             echo "- Heuristic diode insertion: \`${{ steps.summary_knobs.outputs.heuristic_diode_insertion }}\`"
@@ -403,29 +360,24 @@ jobs:
 
   coarse-sweep:
     name: Coarse Sweep (${{ matrix.clock_ns }} ns)
-    needs:
-      - plan
-    if: ${{ needs.plan.outputs.coarse_matrix_json != '[]' }}
+    needs: [plan]
+    if: ${{ needs.plan.outputs.coarse_matrix_json != '' && needs.plan.outputs.coarse_matrix_json != '[]' }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
         clock_ns: ${{ fromJson(needs.plan.outputs.coarse_matrix_json) }}
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-
+          python-version: '3.11'
       - name: Install runtime dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python -m pip install volare pyyaml
-
       - name: Restore PDK cache
         uses: actions/cache@v4
         with:
@@ -433,7 +385,6 @@ jobs:
           key: ${{ runner.os }}-sky130-volare-${{ needs.plan.outputs.open_pdks_rev }}
           restore-keys: |
             ${{ runner.os }}-sky130-volare-
-
       - name: Install Sky130 PDK with Volare
         env:
           PDK_ROOT: ${{ github.workspace }}/.volare
@@ -441,14 +392,12 @@ jobs:
         run: |
           mkdir -p "${PDK_ROOT}"
           volare enable --pdk sky130 "${OPEN_PDKS_REV}"
-
       - name: Pull OpenLane image
         env:
           OPENLANE_IMAGE: ${{ needs.plan.outputs.openlane_image }}
         run: |
           docker pull "${OPENLANE_IMAGE}"
-
-      - name: Run coarse sweep point
+      - name: Run coarse point
         env:
           VARIANT: ${{ needs.plan.outputs.resolved_variant }}
           OPENLANE_IMAGE: ${{ needs.plan.outputs.openlane_image }}
@@ -468,7 +417,6 @@ jobs:
             --min-clock-ns "${CLOCK_NS}" \
             --max-clock-ns "${CLOCK_NS}" \
             --initial-step-ns "1" \
-            --refine-steps-ns "1" \
             --tolerance-ns "0.000001" \
             --max-iters "1" \
             --synth-strategy "${SYNTH_STRATEGY}" \
@@ -477,8 +425,7 @@ jobs:
             --run-post-grt-design-repair "${RUN_POST_GRT_DESIGN_REPAIR:-true}" \
             --run-post-grt-resizer-timing "${RUN_POST_GRT_RESIZER_TIMING:-false}" \
             --out-root "ci_out/${VARIANT}"
-
-      - name: Upload coarse sweep artifacts
+      - name: Upload coarse artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -489,9 +436,7 @@ jobs:
 
   select-coarse-bracket:
     name: Select Coarse Bracket
-    needs:
-      - plan
-      - coarse-sweep
+    needs: [plan, coarse-sweep]
     if: ${{ always() && needs.coarse-sweep.result != 'skipped' }}
     runs-on: ubuntu-latest
     outputs:
@@ -500,19 +445,15 @@ jobs:
       lower_fail_kind: ${{ steps.select.outputs.lower_fail_kind }}
       matrix_json: ${{ steps.select.outputs.matrix_json }}
       reason: ${{ steps.select.outputs.reason }}
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-
+          python-version: '3.11'
       - name: Download accumulated artifacts
         uses: actions/download-artifact@v4
         with:
           path: downloaded_artifacts
-
       - name: Select coarse bracket
         id: select
         run: |
@@ -520,7 +461,6 @@ jobs:
             --artifacts-root downloaded_artifacts \
             --next-step-ns "${{ needs.plan.outputs.mid_refine_step_ns }}" \
             --github-output "$GITHUB_OUTPUT"
-
       - name: Append coarse bracket summary
         if: always()
         run: |
@@ -536,30 +476,24 @@ jobs:
 
   mid-refine-sweep:
     name: Mid Refine Sweep (${{ matrix.clock_ns }} ns)
-    needs:
-      - plan
-      - select-coarse-bracket
-    if: ${{ needs.select-coarse-bracket.outputs.matrix_json != '[]' }}
+    needs: [plan, select-coarse-bracket]
+    if: ${{ needs.select-coarse-bracket.outputs.matrix_json != '' && needs.select-coarse-bracket.outputs.matrix_json != '[]' }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
         clock_ns: ${{ fromJson(needs.select-coarse-bracket.outputs.matrix_json) }}
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-
+          python-version: '3.11'
       - name: Install runtime dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python -m pip install volare pyyaml
-
       - name: Restore PDK cache
         uses: actions/cache@v4
         with:
@@ -567,7 +501,6 @@ jobs:
           key: ${{ runner.os }}-sky130-volare-${{ needs.plan.outputs.open_pdks_rev }}
           restore-keys: |
             ${{ runner.os }}-sky130-volare-
-
       - name: Install Sky130 PDK with Volare
         env:
           PDK_ROOT: ${{ github.workspace }}/.volare
@@ -575,13 +508,11 @@ jobs:
         run: |
           mkdir -p "${PDK_ROOT}"
           volare enable --pdk sky130 "${OPEN_PDKS_REV}"
-
       - name: Pull OpenLane image
         env:
           OPENLANE_IMAGE: ${{ needs.plan.outputs.openlane_image }}
         run: |
           docker pull "${OPENLANE_IMAGE}"
-
       - name: Run mid refine point
         env:
           VARIANT: ${{ needs.plan.outputs.resolved_variant }}
@@ -602,7 +533,6 @@ jobs:
             --min-clock-ns "${CLOCK_NS}" \
             --max-clock-ns "${CLOCK_NS}" \
             --initial-step-ns "1" \
-            --refine-steps-ns "1" \
             --tolerance-ns "0.000001" \
             --max-iters "1" \
             --synth-strategy "${SYNTH_STRATEGY}" \
@@ -611,7 +541,6 @@ jobs:
             --run-post-grt-design-repair "${RUN_POST_GRT_DESIGN_REPAIR:-true}" \
             --run-post-grt-resizer-timing "${RUN_POST_GRT_RESIZER_TIMING:-false}" \
             --out-root "ci_out/${VARIANT}"
-
       - name: Upload mid refine artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -623,37 +552,31 @@ jobs:
 
   select-mid-bracket:
     name: Select Mid Bracket
-    needs:
-      - plan
-      - select-coarse-bracket
-      - mid-refine-sweep
+    needs: [plan, select-coarse-bracket, mid-refine-sweep]
     if: ${{ always() && needs.select-coarse-bracket.result == 'success' }}
     runs-on: ubuntu-latest
     outputs:
       upper_pass_clock_ns: ${{ steps.select.outputs.upper_pass_clock_ns }}
       lower_fail_clock_ns: ${{ steps.select.outputs.lower_fail_clock_ns }}
       lower_fail_kind: ${{ steps.select.outputs.lower_fail_kind }}
+      matrix_json: ${{ steps.select.outputs.matrix_json }}
       reason: ${{ steps.select.outputs.reason }}
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-
+          python-version: '3.11'
       - name: Download accumulated artifacts
         uses: actions/download-artifact@v4
         with:
           path: downloaded_artifacts
-
       - name: Select mid bracket
         id: select
         run: |
           python tools/scripts/select_clock_bracket.py \
             --artifacts-root downloaded_artifacts \
+            --next-step-ns "${{ needs.plan.outputs.refine1_step_ns }}" \
             --github-output "$GITHUB_OUTPUT"
-
       - name: Append mid bracket summary
         if: always()
         run: |
@@ -663,31 +586,30 @@ jobs:
             echo "- Upper pass: \`${{ steps.select.outputs.upper_pass_clock_ns }} ns\`"
             echo "- Lower fail: \`${{ steps.select.outputs.lower_fail_clock_ns }} ns\`"
             echo "- Lower fail kind: \`${{ steps.select.outputs.lower_fail_kind }}\`"
+            echo "- Refine-1 matrix: \`${{ steps.select.outputs.matrix_json }}\`"
             echo "- Remarks: \`${{ steps.select.outputs.reason }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  adaptive-refine:
-    name: Adaptive Refine
-    needs:
-      - plan
-      - select-mid-bracket
-    if: ${{ needs.select-mid-bracket.outputs.upper_pass_clock_ns != '' && needs.select-mid-bracket.outputs.lower_fail_clock_ns != '' }}
+  refine-sweep-1:
+    name: Refine Sweep 1 (${{ matrix.clock_ns }} ns)
+    needs: [plan, select-mid-bracket]
+    if: ${{ needs.select-mid-bracket.outputs.matrix_json != '' && needs.select-mid-bracket.outputs.matrix_json != '[]' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 360
-
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        clock_ns: ${{ fromJson(needs.select-mid-bracket.outputs.matrix_json) }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-
+          python-version: '3.11'
       - name: Install runtime dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python -m pip install volare pyyaml
-
       - name: Restore PDK cache
         uses: actions/cache@v4
         with:
@@ -695,7 +617,6 @@ jobs:
           key: ${{ runner.os }}-sky130-volare-${{ needs.plan.outputs.open_pdks_rev }}
           restore-keys: |
             ${{ runner.os }}-sky130-volare-
-
       - name: Install Sky130 PDK with Volare
         env:
           PDK_ROOT: ${{ github.workspace }}/.volare
@@ -703,14 +624,12 @@ jobs:
         run: |
           mkdir -p "${PDK_ROOT}"
           volare enable --pdk sky130 "${OPEN_PDKS_REV}"
-
       - name: Pull OpenLane image
         env:
           OPENLANE_IMAGE: ${{ needs.plan.outputs.openlane_image }}
         run: |
           docker pull "${OPENLANE_IMAGE}"
-
-      - name: Run adaptive refine inside tighter bracket
+      - name: Run refine-1 point
         env:
           VARIANT: ${{ needs.plan.outputs.resolved_variant }}
           OPENLANE_IMAGE: ${{ needs.plan.outputs.openlane_image }}
@@ -720,42 +639,261 @@ jobs:
           RUN_POST_GRT_DESIGN_REPAIR: ${{ github.event.inputs.run_post_grt_design_repair }}
           RUN_POST_GRT_RESIZER_TIMING: ${{ github.event.inputs.run_post_grt_resizer_timing }}
           PDK_ROOT: ${{ github.workspace }}/.volare
-          START_CLOCK_NS: ${{ needs.select-mid-bracket.outputs.upper_pass_clock_ns }}
-          MIN_CLOCK_NS: ${{ needs.select-mid-bracket.outputs.lower_fail_clock_ns }}
-          MAX_CLOCK_NS: ${{ needs.select-mid-bracket.outputs.upper_pass_clock_ns }}
-          INITIAL_STEP_NS: ${{ needs.plan.outputs.refine1_step_ns }}
-          REFINE_STEPS_NS: ${{ needs.plan.outputs.adaptive_refine_steps_ns }}
-          TOLERANCE_NS: ${{ needs.plan.outputs.tolerance_ns }}
-          MAX_ITERS: ${{ needs.plan.outputs.max_iters }}
+          CLOCK_NS: ${{ matrix.clock_ns }}
         run: |
           python tools/scripts/autoflow.py \
             --variant "${VARIANT}" \
             --pdk-root "${PDK_ROOT}" \
             --openlane-image "${OPENLANE_IMAGE}" \
-            --start-clock-ns "${START_CLOCK_NS}" \
-            --min-clock-ns "${MIN_CLOCK_NS}" \
-            --max-clock-ns "${MAX_CLOCK_NS}" \
-            --initial-step-ns "${INITIAL_STEP_NS}" \
-            --refine-steps-ns "${REFINE_STEPS_NS}" \
-            --tolerance-ns "${TOLERANCE_NS}" \
-            --max-iters "${MAX_ITERS}" \
+            --start-clock-ns "${CLOCK_NS}" \
+            --min-clock-ns "${CLOCK_NS}" \
+            --max-clock-ns "${CLOCK_NS}" \
+            --initial-step-ns "1" \
+            --tolerance-ns "0.000001" \
+            --max-iters "1" \
             --synth-strategy "${SYNTH_STRATEGY}" \
             --run-antenna-repair "${RUN_ANTENNA_REPAIR:-true}" \
             --run-heuristic-diode-insertion "${RUN_HEURISTIC_DIODE_INSERTION:-true}" \
             --run-post-grt-design-repair "${RUN_POST_GRT_DESIGN_REPAIR:-true}" \
             --run-post-grt-resizer-timing "${RUN_POST_GRT_RESIZER_TIMING:-false}" \
             --out-root "ci_out/${VARIANT}"
-
-      - name: Show adaptive refine outputs
-        if: always()
-        run: |
-          find "ci_out/${{ needs.plan.outputs.resolved_variant }}" -maxdepth 3 -type f | sort | sed -n '1,400p'
-
-      - name: Upload adaptive refine artifacts
+      - name: Upload refine-1 artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: adaptive-refine-${{ needs.plan.outputs.resolved_variant }}
+          name: refine1-${{ needs.plan.outputs.resolved_variant }}-${{ matrix.clock_ns }}ns
+          path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
+          if-no-files-found: error
+          include-hidden-files: true
+
+  select-refine-1:
+    name: Select Refine 2 Bracket
+    needs: [plan, select-mid-bracket, refine-sweep-1]
+    if: ${{ always() && needs.select-mid-bracket.result == 'success' }}
+    runs-on: ubuntu-latest
+    outputs:
+      upper_pass_clock_ns: ${{ steps.select.outputs.upper_pass_clock_ns }}
+      lower_fail_clock_ns: ${{ steps.select.outputs.lower_fail_clock_ns }}
+      lower_fail_kind: ${{ steps.select.outputs.lower_fail_kind }}
+      matrix_json: ${{ steps.select.outputs.matrix_json }}
+      reason: ${{ steps.select.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download accumulated artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: downloaded_artifacts
+      - name: Select refine-2 bracket
+        id: select
+        run: |
+          python tools/scripts/select_clock_bracket.py \
+            --artifacts-root downloaded_artifacts \
+            --next-step-ns "${{ needs.plan.outputs.refine2_step_ns }}" \
+            --github-output "$GITHUB_OUTPUT"
+      - name: Append refine-2 bracket summary
+        if: always()
+        run: |
+          {
+            echo "## Select Refine 2 Bracket"
+            echo ""
+            echo "- Upper pass: \`${{ steps.select.outputs.upper_pass_clock_ns }} ns\`"
+            echo "- Lower fail: \`${{ steps.select.outputs.lower_fail_clock_ns }} ns\`"
+            echo "- Lower fail kind: \`${{ steps.select.outputs.lower_fail_kind }}\`"
+            echo "- Refine-2 matrix: \`${{ steps.select.outputs.matrix_json }}\`"
+            echo "- Remarks: \`${{ steps.select.outputs.reason }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  refine-sweep-2:
+    name: Refine Sweep 2 (${{ matrix.clock_ns }} ns)
+    needs: [plan, select-refine-1]
+    if: ${{ needs.select-refine-1.outputs.matrix_json != '' && needs.select-refine-1.outputs.matrix_json != '[]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        clock_ns: ${{ fromJson(needs.select-refine-1.outputs.matrix_json) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install volare pyyaml
+      - name: Restore PDK cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.volare
+          key: ${{ runner.os }}-sky130-volare-${{ needs.plan.outputs.open_pdks_rev }}
+          restore-keys: |
+            ${{ runner.os }}-sky130-volare-
+      - name: Install Sky130 PDK with Volare
+        env:
+          PDK_ROOT: ${{ github.workspace }}/.volare
+          OPEN_PDKS_REV: ${{ needs.plan.outputs.open_pdks_rev }}
+        run: |
+          mkdir -p "${PDK_ROOT}"
+          volare enable --pdk sky130 "${OPEN_PDKS_REV}"
+      - name: Pull OpenLane image
+        env:
+          OPENLANE_IMAGE: ${{ needs.plan.outputs.openlane_image }}
+        run: |
+          docker pull "${OPENLANE_IMAGE}"
+      - name: Run refine-2 point
+        env:
+          VARIANT: ${{ needs.plan.outputs.resolved_variant }}
+          OPENLANE_IMAGE: ${{ needs.plan.outputs.openlane_image }}
+          SYNTH_STRATEGY: ${{ github.event.inputs.synth_strategy }}
+          RUN_ANTENNA_REPAIR: ${{ github.event.inputs.run_antenna_repair }}
+          RUN_HEURISTIC_DIODE_INSERTION: ${{ github.event.inputs.run_heuristic_diode_insertion }}
+          RUN_POST_GRT_DESIGN_REPAIR: ${{ github.event.inputs.run_post_grt_design_repair }}
+          RUN_POST_GRT_RESIZER_TIMING: ${{ github.event.inputs.run_post_grt_resizer_timing }}
+          PDK_ROOT: ${{ github.workspace }}/.volare
+          CLOCK_NS: ${{ matrix.clock_ns }}
+        run: |
+          python tools/scripts/autoflow.py \
+            --variant "${VARIANT}" \
+            --pdk-root "${PDK_ROOT}" \
+            --openlane-image "${OPENLANE_IMAGE}" \
+            --start-clock-ns "${CLOCK_NS}" \
+            --min-clock-ns "${CLOCK_NS}" \
+            --max-clock-ns "${CLOCK_NS}" \
+            --initial-step-ns "1" \
+            --tolerance-ns "0.000001" \
+            --max-iters "1" \
+            --synth-strategy "${SYNTH_STRATEGY}" \
+            --run-antenna-repair "${RUN_ANTENNA_REPAIR:-true}" \
+            --run-heuristic-diode-insertion "${RUN_HEURISTIC_DIODE_INSERTION:-true}" \
+            --run-post-grt-design-repair "${RUN_POST_GRT_DESIGN_REPAIR:-true}" \
+            --run-post-grt-resizer-timing "${RUN_POST_GRT_RESIZER_TIMING:-false}" \
+            --out-root "ci_out/${VARIANT}"
+      - name: Upload refine-2 artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: refine2-${{ needs.plan.outputs.resolved_variant }}-${{ matrix.clock_ns }}ns
+          path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
+          if-no-files-found: error
+          include-hidden-files: true
+
+  select-refine-2:
+    name: Select Refine 3 Bracket
+    needs: [plan, select-refine-1, refine-sweep-2]
+    if: ${{ always() && needs.select-refine-1.result == 'success' }}
+    runs-on: ubuntu-latest
+    outputs:
+      upper_pass_clock_ns: ${{ steps.select.outputs.upper_pass_clock_ns }}
+      lower_fail_clock_ns: ${{ steps.select.outputs.lower_fail_clock_ns }}
+      lower_fail_kind: ${{ steps.select.outputs.lower_fail_kind }}
+      matrix_json: ${{ steps.select.outputs.matrix_json }}
+      reason: ${{ steps.select.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download accumulated artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: downloaded_artifacts
+      - name: Select refine-3 bracket
+        id: select
+        run: |
+          python tools/scripts/select_clock_bracket.py \
+            --artifacts-root downloaded_artifacts \
+            --next-step-ns "${{ needs.plan.outputs.refine3_step_ns }}" \
+            --github-output "$GITHUB_OUTPUT"
+      - name: Append refine-3 bracket summary
+        if: always()
+        run: |
+          {
+            echo "## Select Refine 3 Bracket"
+            echo ""
+            echo "- Upper pass: \`${{ steps.select.outputs.upper_pass_clock_ns }} ns\`"
+            echo "- Lower fail: \`${{ steps.select.outputs.lower_fail_clock_ns }} ns\`"
+            echo "- Lower fail kind: \`${{ steps.select.outputs.lower_fail_kind }}\`"
+            echo "- Refine-3 matrix: \`${{ steps.select.outputs.matrix_json }}\`"
+            echo "- Remarks: \`${{ steps.select.outputs.reason }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  refine-sweep-3:
+    name: Refine Sweep 3 (${{ matrix.clock_ns }} ns)
+    needs: [plan, select-refine-2]
+    if: ${{ needs.select-refine-2.outputs.matrix_json != '' && needs.select-refine-2.outputs.matrix_json != '[]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        clock_ns: ${{ fromJson(needs.select-refine-2.outputs.matrix_json) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install volare pyyaml
+      - name: Restore PDK cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.volare
+          key: ${{ runner.os }}-sky130-volare-${{ needs.plan.outputs.open_pdks_rev }}
+          restore-keys: |
+            ${{ runner.os }}-sky130-volare-
+      - name: Install Sky130 PDK with Volare
+        env:
+          PDK_ROOT: ${{ github.workspace }}/.volare
+          OPEN_PDKS_REV: ${{ needs.plan.outputs.open_pdks_rev }}
+        run: |
+          mkdir -p "${PDK_ROOT}"
+          volare enable --pdk sky130 "${OPEN_PDKS_REV}"
+      - name: Pull OpenLane image
+        env:
+          OPENLANE_IMAGE: ${{ needs.plan.outputs.openlane_image }}
+        run: |
+          docker pull "${OPENLANE_IMAGE}"
+      - name: Run refine-3 point
+        env:
+          VARIANT: ${{ needs.plan.outputs.resolved_variant }}
+          OPENLANE_IMAGE: ${{ needs.plan.outputs.openlane_image }}
+          SYNTH_STRATEGY: ${{ github.event.inputs.synth_strategy }}
+          RUN_ANTENNA_REPAIR: ${{ github.event.inputs.run_antenna_repair }}
+          RUN_HEURISTIC_DIODE_INSERTION: ${{ github.event.inputs.run_heuristic_diode_insertion }}
+          RUN_POST_GRT_DESIGN_REPAIR: ${{ github.event.inputs.run_post_grt_design_repair }}
+          RUN_POST_GRT_RESIZER_TIMING: ${{ github.event.inputs.run_post_grt_resizer_timing }}
+          PDK_ROOT: ${{ github.workspace }}/.volare
+          CLOCK_NS: ${{ matrix.clock_ns }}
+        run: |
+          python tools/scripts/autoflow.py \
+            --variant "${VARIANT}" \
+            --pdk-root "${PDK_ROOT}" \
+            --openlane-image "${OPENLANE_IMAGE}" \
+            --start-clock-ns "${CLOCK_NS}" \
+            --min-clock-ns "${CLOCK_NS}" \
+            --max-clock-ns "${CLOCK_NS}" \
+            --initial-step-ns "1" \
+            --tolerance-ns "0.000001" \
+            --max-iters "1" \
+            --synth-strategy "${SYNTH_STRATEGY}" \
+            --run-antenna-repair "${RUN_ANTENNA_REPAIR:-true}" \
+            --run-heuristic-diode-insertion "${RUN_HEURISTIC_DIODE_INSERTION:-true}" \
+            --run-post-grt-design-repair "${RUN_POST_GRT_DESIGN_REPAIR:-true}" \
+            --run-post-grt-resizer-timing "${RUN_POST_GRT_RESIZER_TIMING:-false}" \
+            --out-root "ci_out/${VARIANT}"
+      - name: Upload refine-3 artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: refine3-${{ needs.plan.outputs.resolved_variant }}-${{ matrix.clock_ns }}ns
           path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
           if-no-files-found: error
           include-hidden-files: true
@@ -768,32 +906,30 @@ jobs:
       - select-coarse-bracket
       - mid-refine-sweep
       - select-mid-bracket
-      - adaptive-refine
+      - refine-sweep-1
+      - select-refine-1
+      - refine-sweep-2
+      - select-refine-2
+      - refine-sweep-3
     if: ${{ always() && needs.coarse-sweep.result != 'skipped' }}
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-
+          python-version: '3.11'
       - name: Download all upstream artifacts
         uses: actions/download-artifact@v4
         with:
           path: downloaded_artifacts
-
       - name: Show downloaded structure
         run: |
           find downloaded_artifacts -maxdepth 8 -type f | sort | sed -n '1,400p'
-
       - name: Fail if no metrics were downloaded
         run: |
           COUNT="$(find downloaded_artifacts -type f -name metrics.csv | wc -l | tr -d ' ')"
           echo "Found ${COUNT} metrics.csv files"
           test "${COUNT}" != "0"
-
       - name: Compare runs and build explorer
         run: |
           python tools/scripts/compare_runs.py \
@@ -805,19 +941,16 @@ jobs:
             --site-dir _site \
             --repo-slug "${{ github.repository }}" \
             --run-id "${{ github.run_id }}"
-
       - name: Validate explorer outputs
         run: |
           test -f _compare_summary.md
           test -f _best_run.json
           test -f _site/index.html
           find _site -maxdepth 4 -type f | sort | sed -n '1,300p'
-
       - name: Append compare summary
         if: always()
         run: |
           cat _compare_summary.md >> "$GITHUB_STEP_SUMMARY"
-
       - name: Upload compare summary
         if: always()
         uses: actions/upload-artifact@v4
@@ -829,7 +962,6 @@ jobs:
             _best_run.json
           if-no-files-found: error
           include-hidden-files: true
-
       - name: Upload best-layout bundle
         if: always()
         uses: actions/upload-artifact@v4
@@ -838,7 +970,6 @@ jobs:
           path: best-layout-bundle/
           if-no-files-found: error
           include-hidden-files: true
-
       - name: Upload run explorer site
         if: always()
         uses: actions/upload-artifact@v4
@@ -856,26 +987,21 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
       - name: Configure Pages
         uses: actions/configure-pages@v5
-
       - name: Download run explorer artifact
         uses: actions/download-artifact@v4
         with:
           name: run-explorer-site
           path: _site
-
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: _site
-
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
       - name: Workflow Summary
         run: |
           {

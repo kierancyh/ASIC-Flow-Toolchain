@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import yaml
 
@@ -160,10 +160,6 @@ def gh_group_end() -> None:
     print("::endgroup::", flush=True)
 
 
-def gh_debug(message: str) -> None:
-    print(f"::debug::{message}", flush=True)
-
-
 def read_csv_row(path: Path) -> Dict[str, str]:
     if not path.exists():
         return {}
@@ -222,7 +218,6 @@ def find_latest_run_dir(since_ts: float) -> Optional[Path]:
         return None
 
     candidates: List[Tuple[float, Path]] = []
-
     for path in runs_dir.rglob("RUN_*"):
         if not path.is_dir():
             continue
@@ -247,6 +242,14 @@ def find_latest_run_dir(since_ts: float) -> Optional[Path]:
     return candidates[0][1]
 
 
+def copy_tree_if_exists(src: Path, dst: Path) -> None:
+    if not src.exists():
+        return
+    if dst.exists():
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst)
+
+
 def maybe_copy_metrics_raw(run_dir: Path, attempt_dir: Path) -> None:
     metrics_json = run_dir / "final" / "metrics.json"
     if metrics_json.exists():
@@ -263,6 +266,45 @@ def maybe_copy_gds(run_dir: Path, attempt_dir: Path) -> None:
     for gds in sorted(gds_dir.glob("*")):
         if gds.is_file():
             shutil.copy2(gds, dst_gds / gds.name)
+
+
+def maybe_copy_openlane_run(run_dir: Path, attempt_dir: Path) -> None:
+    dst = attempt_dir / "openlane_run"
+    copy_tree_if_exists(run_dir, dst)
+
+
+def write_attempt_manifest(
+    attempt_dir: Path,
+    *,
+    variant: str,
+    clock_ns: float,
+    status: str,
+    reason: str,
+    openlane_rc: int,
+    run_dir: Optional[Path],
+    metrics_row: Dict[str, str],
+) -> None:
+    manifest = {
+        "variant": variant,
+        "clock_ns": clock_ns,
+        "status": status,
+        "selection_reason": reason,
+        "openlane_rc": openlane_rc,
+        "run_dir": str(run_dir) if run_dir else "",
+        "files": {
+            "metrics_csv": (attempt_dir / "metrics.csv").exists(),
+            "metrics_md": (attempt_dir / "metrics.md").exists(),
+            "metrics_raw_json": (attempt_dir / "metrics_raw.json").exists(),
+            "run_meta_json": (attempt_dir / "run_meta.json").exists(),
+            "attempt_started_txt": (attempt_dir / "attempt_started.txt").exists(),
+            "renders_dir": (attempt_dir / "renders").exists(),
+            "final_gds_dir": (attempt_dir / "final" / "gds").exists(),
+            "openlane_run_dir": (attempt_dir / "openlane_run").exists(),
+            "viewer_html": (attempt_dir / "viewer.html").exists(),
+        },
+        "metrics": {key: metrics_row.get(key, "") for key in CSV_FIELDS},
+    }
+    (attempt_dir / "attempt_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
 def has_valid_timing_metrics(metrics_row: Dict[str, str]) -> bool:
@@ -374,148 +416,45 @@ def compute_bounds(pass_clocks: Sequence[float], fail_clocks: Sequence[float]) -
     return pass_bound, fail_bound
 
 
-def parse_refine_steps(refine_steps_ns: str, initial_step_ns: float, tolerance_ns: float) -> List[float]:
-    steps: List[float] = [round(max(float(initial_step_ns), float(tolerance_ns)), 6)]
-    raw = (refine_steps_ns or "").strip()
-    if raw:
-        for token in raw.replace(";", ",").split(","):
-            piece = token.strip()
-            if not piece:
-                continue
-            value = float(piece)
-            if value <= 0:
-                raise SystemExit("refine-steps-ns values must be > 0")
-            rounded = round(max(value, float(tolerance_ns)), 6)
-            if rounded not in steps:
-                steps.append(rounded)
-
-    for idx in range(1, len(steps)):
-        if steps[idx] > steps[idx - 1]:
-            raise SystemExit("refine-steps-ns must be in non-increasing order after the coarse step")
-
-    return steps
-
-
-def next_downward_candidate_no_fail(
-    *,
-    pass_bound: float,
-    step: float,
-    min_clock_ns: float,
-    tested: Set[float],
-) -> Optional[float]:
-    candidate = round(pass_bound - step, 6)
-    while candidate >= round(min_clock_ns, 6):
-        if candidate not in tested:
-            return candidate
-        candidate = round(candidate - step, 6)
-    return None
-
-
-def next_downward_candidate_within_bracket(
-    *,
-    pass_bound: float,
-    fail_bound: float,
-    step: float,
-    tested: Set[float],
-) -> Optional[float]:
-    candidate = round(pass_bound - step, 6)
-    while candidate > round(fail_bound, 6):
-        if candidate not in tested:
-            return candidate
-        candidate = round(candidate - step, 6)
-    return None
-
-
-def next_upward_candidate(
-    *,
-    anchor_clock: float,
-    step: float,
-    max_clock_ns: float,
-    tested: Set[float],
-) -> Optional[float]:
-    candidate = round(anchor_clock + step, 6)
-    while candidate <= round(max_clock_ns, 6):
-        if candidate not in tested:
-            return candidate
-        candidate = round(candidate + step, 6)
-    return None
+def midpoint(a: float, b: float, precision: int = 6) -> float:
+    return round((a + b) / 2.0, precision)
 
 
 def choose_next_clock(
     *,
-    tested_clocks: Sequence[float],
+    current: float,
     pass_clocks: Sequence[float],
-    usable_fail_clocks: Sequence[float],
-    flow_fail_clocks: Sequence[float],
-    step_sequence: Sequence[float],
-    step_index: int,
+    fail_clocks: Sequence[float],
+    step: float,
     min_clock_ns: float,
     max_clock_ns: float,
     tolerance_ns: float,
-) -> Tuple[Optional[float], int, str]:
-    tested = {round(v, 6) for v in tested_clocks}
-    pass_bound, fail_bound = compute_bounds(pass_clocks, usable_fail_clocks)
+) -> Tuple[Optional[float], float]:
+    next_step = max(step, tolerance_ns)
+    pass_bound, fail_bound = compute_bounds(pass_clocks, fail_clocks)
 
-    provisional_flow_fail_bound: Optional[float] = None
-    if pass_bound is not None:
-        lower_flow_fails = [f for f in flow_fail_clocks if f < pass_bound]
-        provisional_flow_fail_bound = max(lower_flow_fails) if lower_flow_fails else None
+    if pass_bound is None:
+        candidate = min(max_clock_ns, current + next_step)
+        if abs(candidate - current) < 1e-9:
+            return None, next_step
+        return round(candidate, 6), next_step
 
-    while True:
-        current_step = step_sequence[step_index]
+    if fail_bound is None:
+        candidate = max(min_clock_ns, pass_bound - next_step)
+        if abs(candidate - current) < 1e-9:
+            return None, next_step
+        return round(candidate, 6), next_step
 
-        if pass_bound is None:
-            anchor_clock = max(tested) if tested else round(min_clock_ns, 6)
-            candidate = next_upward_candidate(
-                anchor_clock=anchor_clock,
-                step=current_step,
-                max_clock_ns=max_clock_ns,
-                tested=tested,
-            )
-            if candidate is None:
-                return None, step_index, f"Stopping because no passing point was found before the max clock cap {max_clock_ns} ns."
-            return candidate, step_index, f"No pass found yet, so search upward at the current {current_step} ns step."
+    interval = pass_bound - fail_bound
+    if interval <= tolerance_ns:
+        return None, max(tolerance_ns, interval / 2.0)
 
-        effective_fail_bound = fail_bound
-        effective_fail_kind = "usable"
-        if effective_fail_bound is None and provisional_flow_fail_bound is not None:
-            effective_fail_bound = provisional_flow_fail_bound
-            effective_fail_kind = "flow"
+    candidate = midpoint(pass_bound, fail_bound)
+    candidate = max(min_clock_ns, min(max_clock_ns, candidate))
+    if abs(candidate - current) < 1e-9:
+        return None, max(tolerance_ns, interval / 2.0)
 
-        if effective_fail_bound is None:
-            candidate = next_downward_candidate_no_fail(
-                pass_bound=pass_bound,
-                step=current_step,
-                min_clock_ns=min_clock_ns,
-                tested=tested,
-            )
-            if candidate is None:
-                return None, step_index, f"Reached the minimum clock floor {min_clock_ns} ns with no failure below the current best pass {pass_bound} ns."
-            return candidate, step_index, f"No failure below the current best pass {pass_bound} ns, so keep searching downward at {current_step} ns step."
-
-        interval = round(pass_bound - effective_fail_bound, 6)
-        if interval <= tolerance_ns:
-            if effective_fail_kind == "flow":
-                return None, step_index, f"Stopping because the provisional pass/FLOW_FAIL bracket [{effective_fail_bound}, {pass_bound}] ns is within tolerance {tolerance_ns} ns."
-            return None, step_index, f"Stopping because the pass/fail bracket [{effective_fail_bound}, {pass_bound}] ns is within tolerance {tolerance_ns} ns."
-
-        candidate = next_downward_candidate_within_bracket(
-            pass_bound=pass_bound,
-            fail_bound=effective_fail_bound,
-            step=current_step,
-            tested=tested,
-        )
-        if candidate is not None:
-            if effective_fail_kind == "flow":
-                return candidate, step_index, f"Using provisional FLOW_FAIL boundary [{effective_fail_bound}, {pass_bound}] ns and refining at the current {current_step} ns step."
-            return candidate, step_index, f"Refining inside bracket [{effective_fail_bound}, {pass_bound}] ns at the current {current_step} ns step."
-
-        if step_index + 1 >= len(step_sequence):
-            if effective_fail_kind == "flow":
-                return None, step_index, f"Stopping because no further untested candidates remain inside provisional FLOW_FAIL bracket [{effective_fail_bound}, {pass_bound}] ns at the finest configured step {current_step} ns."
-            return None, step_index, f"Stopping because no further untested candidates remain inside bracket [{effective_fail_bound}, {pass_bound}] ns at the finest configured step {current_step} ns."
-
-        step_index += 1
+    return candidate, max(tolerance_ns, interval / 2.0)
 
 
 def resolve_summary_path() -> Optional[Path]:
@@ -535,7 +474,6 @@ def main() -> None:
     ap.add_argument("--min-clock-ns", type=float, default=5.0)
     ap.add_argument("--max-clock-ns", type=float, default=200.0)
     ap.add_argument("--initial-step-ns", type=float, default=20.0)
-    ap.add_argument("--refine-steps-ns", default="5.0,1.0,0.5,0.125")
     ap.add_argument("--tolerance-ns", type=float, default=1.0)
     ap.add_argument("--max-iters", type=int, default=8)
     ap.add_argument("--synth-strategy", default="")
@@ -559,7 +497,6 @@ def main() -> None:
         "min_clock_ns": args.min_clock_ns,
         "max_clock_ns": args.max_clock_ns,
         "initial_step_ns": args.initial_step_ns,
-        "refine_steps_ns": args.refine_steps_ns,
         "tolerance_ns": args.tolerance_ns,
         "max_iters": args.max_iters,
         "openlane_image": args.openlane_image,
@@ -572,20 +509,16 @@ def main() -> None:
     summary_path = resolve_summary_path()
     append_summary(summary_path, f"## Autoflow: {safe_variant}")
     append_summary(summary_path, "")
-    append_summary(summary_path, f"Adaptive steps: {parse_refine_steps(args.refine_steps_ns, args.initial_step_ns, args.tolerance_ns)}")
-    append_summary(summary_path, "")
     append_summary(summary_path, "| Attempt | Clock (ns) | Status | Setup WNS | Setup TNS | DRC | LVS | Antenna | RC | Remarks |")
     append_summary(summary_path, "|---:|---:|---|---:|---:|---:|---:|---:|---:|---|")
 
     history: List[Dict[str, Any]] = []
     pass_clocks: List[float] = []
-    usable_fail_clocks: List[float] = []
-    flow_fail_clocks: List[float] = []
+    fail_clocks: List[float] = []
 
     current = max(args.min_clock_ns, min(args.max_clock_ns, args.start_clock_ns))
-    step_sequence = parse_refine_steps(args.refine_steps_ns, args.initial_step_ns, args.tolerance_ns)
-    step_index = 0
-    tried: Set[float] = set()
+    step = max(args.initial_step_ns, args.tolerance_ns)
+    tried: set[float] = set()
 
     for attempt in range(1, args.max_iters + 1):
         rounded_current = round(current, 6)
@@ -594,18 +527,9 @@ def main() -> None:
             break
         tried.add(rounded_current)
 
-        current_step = step_sequence[step_index]
-        group_title = f"Attempt {attempt} - {rounded_current} ns"
-        gh_group_start(group_title)
+        gh_group_start(f"Attempt {attempt} - {rounded_current} ns")
         try:
-            print(f"\n=== Attempt {attempt}: trying {rounded_current} ns (step {current_step} ns) ===", flush=True)
-            gh_debug(f"variant={safe_variant}")
-            gh_debug(f"clock_ns={rounded_current}")
-            gh_debug(f"current_step_ns={current_step}")
-            gh_debug(f"step_index={step_index}")
-            gh_debug(f"min_clock_ns={args.min_clock_ns}")
-            gh_debug(f"max_clock_ns={args.max_clock_ns}")
-            gh_debug(f"out_root={out_root}")
+            print(f"\n=== Attempt {attempt}: trying {rounded_current} ns ===", flush=True)
 
             attempt_dir = out_root / f"clk_{clock_label(rounded_current)}ns_attempt_{attempt:02d}"
             attempt_dir.mkdir(parents=True, exist_ok=True)
@@ -621,7 +545,6 @@ def main() -> None:
             )
 
             cfg_path = ROOT / "config.json"
-            gh_debug(f"config_path={cfg_path}")
             sh(
                 [
                     sys.executable,
@@ -670,17 +593,14 @@ def main() -> None:
                 check=False,
             )
             print(f"OpenLane return code: {openlane_rc}", flush=True)
-            gh_debug(f"openlane_rc={openlane_rc}")
 
             run_dir = find_latest_run_dir(start_ts)
             if run_dir is None:
                 print("No run directory detected after attempt.", flush=True)
-                gh_debug("run_dir=(missing)")
                 (attempt_dir / "run_dir_used.txt").write_text("(missing)\n", encoding="utf-8")
                 write_placeholder_metrics(attempt_dir, clock_ns=rounded_current, status="FLOW_FAIL")
             else:
                 print(f"Using run directory: {run_dir}", flush=True)
-                gh_debug(f"run_dir={run_dir}")
                 (attempt_dir / "run_dir_used.txt").write_text(f"{run_dir}\n", encoding="utf-8")
 
                 extract_rc = sh(
@@ -697,9 +617,8 @@ def main() -> None:
                     check=False,
                 )
                 print(f"extract_metrics return code: {extract_rc}", flush=True)
-                gh_debug(f"extract_metrics_rc={extract_rc}")
 
-                render_rc = sh(
+                sh(
                     [
                         sys.executable,
                         str(ROOT / "tools/scripts/render_gds.py"),
@@ -711,9 +630,7 @@ def main() -> None:
                     cwd=ROOT,
                     check=False,
                 )
-                gh_debug(f"render_gds_rc={render_rc}")
-
-                viewer_rc = sh(
+                sh(
                     [
                         sys.executable,
                         str(ROOT / "tools/scripts/build_layout_viewer.py"),
@@ -723,10 +640,10 @@ def main() -> None:
                     cwd=ROOT,
                     check=False,
                 )
-                gh_debug(f"build_layout_viewer_rc={viewer_rc}")
 
                 maybe_copy_metrics_raw(run_dir, attempt_dir)
                 maybe_copy_gds(run_dir, attempt_dir)
+                maybe_copy_openlane_run(run_dir, attempt_dir)
 
                 if not (attempt_dir / "metrics.csv").exists():
                     write_placeholder_metrics(attempt_dir, clock_ns=rounded_current, status="FLOW_FAIL")
@@ -753,6 +670,17 @@ def main() -> None:
             history.append(history_row)
             write_history_files(out_root, history)
 
+            write_attempt_manifest(
+                attempt_dir,
+                variant=safe_variant,
+                clock_ns=rounded_current,
+                status=status,
+                reason=reason,
+                openlane_rc=openlane_rc,
+                run_dir=run_dir,
+                metrics_row=metrics_row,
+            )
+
             print(
                 f"Attempt {attempt} | {rounded_current} ns | {status} | "
                 f"WNS={history_row['setup_wns_ns']} | TNS={history_row['setup_tns_ns']} | "
@@ -769,39 +697,21 @@ def main() -> None:
 
             if status == "PASS":
                 pass_clocks.append(rounded_current)
-            elif status == "FLOW_FAIL":
-                flow_fail_clocks.append(rounded_current)
             else:
-                usable_fail_clocks.append(rounded_current)
+                fail_clocks.append(rounded_current)
 
-            gh_debug(f"pass_clocks={pass_clocks}")
-            gh_debug(f"usable_fail_clocks={usable_fail_clocks}")
-            gh_debug(f"flow_fail_clocks={flow_fail_clocks}")
-
-            next_clock, step_index, next_reason = choose_next_clock(
-                tested_clocks=sorted(tried),
+            next_clock, step = choose_next_clock(
+                current=rounded_current,
                 pass_clocks=pass_clocks,
-                usable_fail_clocks=usable_fail_clocks,
-                flow_fail_clocks=flow_fail_clocks,
-                step_sequence=step_sequence,
-                step_index=step_index,
+                fail_clocks=fail_clocks,
+                step=step,
                 min_clock_ns=args.min_clock_ns,
                 max_clock_ns=args.max_clock_ns,
                 tolerance_ns=args.tolerance_ns,
             )
-
-            gh_debug(f"next_clock={next_clock}")
-            gh_debug(f"next_step_index={step_index}")
-            gh_debug(f"next_reason={next_reason}")
-
             if next_clock is None:
-                print(next_reason, flush=True)
-                append_summary(summary_path, "")
-                append_summary(summary_path, f"Adaptive controller: {next_reason}")
+                print("Stopping: tolerance reached or no further useful clock candidate.", flush=True)
                 break
-
-            print(f"Adaptive controller: next clock = {next_clock} ns | {next_reason}", flush=True)
-            append_summary(summary_path, f"Adaptive controller: next clock = {next_clock} ns | {next_reason}")
             current = next_clock
         finally:
             gh_group_end()

@@ -33,8 +33,8 @@ def read_csv_row(path: Path) -> Optional[Dict[str, str]]:
 
 def signoff_clean(row: Dict[str, str]) -> bool:
     for key in ("drc_errors", "lvs_errors", "antenna_violations"):
-        v = to_float(row.get(key))
-        if v is not None and v != 0.0:
+        value = to_float(row.get(key))
+        if value is not None and value != 0.0:
             return False
     return True
 
@@ -169,12 +169,12 @@ def main() -> None:
     upper_pass, lower_fail, lower_fail_kind = compute_bracket(best_by_clock)
 
     if upper_pass is None:
-        raise SystemExit("No PASS result was found. The sweep has no usable upper pass anchor.")
+        raise SystemExit("No PASS result was found. Increase the clock cap from variant.yaml or inspect FLOW_FAIL causes.")
 
     if lower_fail is None:
         raise SystemExit(
             f"No failing point was found below the fastest PASS {fmt_num(upper_pass)} ns. "
-            f"Increase the coarse reach or lower the floor."
+            f"Lower the floor or inspect whether 0 ns is still passing."
         )
 
     matrix: List[float] = []
