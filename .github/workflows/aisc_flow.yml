@@ -403,7 +403,7 @@ jobs:
             --pdk-root "${PDK_ROOT}" \
             --openlane-image "${OPENLANE_IMAGE}" \
             --stage-label "coarse" \
-            --start-clock-ns "${CLOCK_NS}" \
+            --clock-ns "${CLOCK_NS}" \
             --min-clock-ns "${CLOCK_NS}" \
             --max-clock-ns "${CLOCK_NS}" \
             --initial-step-ns "1" \
@@ -526,7 +526,7 @@ jobs:
             --pdk-root "${PDK_ROOT}" \
             --openlane-image "${OPENLANE_IMAGE}" \
             --stage-label "5 ns" \
-            --start-clock-ns "${CLOCK_NS}" \
+            --clock-ns "${CLOCK_NS}" \
             --min-clock-ns "${CLOCK_NS}" \
             --max-clock-ns "${CLOCK_NS}" \
             --initial-step-ns "1" \
@@ -649,7 +649,7 @@ jobs:
             --pdk-root "${PDK_ROOT}" \
             --openlane-image "${OPENLANE_IMAGE}" \
             --stage-label "1.0 ns" \
-            --start-clock-ns "${CLOCK_NS}" \
+            --clock-ns "${CLOCK_NS}" \
             --min-clock-ns "${CLOCK_NS}" \
             --max-clock-ns "${CLOCK_NS}" \
             --initial-step-ns "1" \
@@ -772,7 +772,7 @@ jobs:
             --pdk-root "${PDK_ROOT}" \
             --openlane-image "${OPENLANE_IMAGE}" \
             --stage-label "0.5 ns" \
-            --start-clock-ns "${CLOCK_NS}" \
+            --clock-ns "${CLOCK_NS}" \
             --min-clock-ns "${CLOCK_NS}" \
             --max-clock-ns "${CLOCK_NS}" \
             --initial-step-ns "1" \
@@ -895,7 +895,7 @@ jobs:
             --pdk-root "${PDK_ROOT}" \
             --openlane-image "${OPENLANE_IMAGE}" \
             --stage-label "0.125 ns" \
-            --start-clock-ns "${CLOCK_NS}" \
+            --clock-ns "${CLOCK_NS}" \
             --min-clock-ns "${CLOCK_NS}" \
             --max-clock-ns "${CLOCK_NS}" \
             --initial-step-ns "1" \
