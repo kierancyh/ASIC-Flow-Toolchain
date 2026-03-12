@@ -987,7 +987,7 @@ a{color:var(--accent);text-decoration:none}
             ],
         )
         power_group = metric_group_html(
-            "Power",
+            "Power (W)",
             [
                 ("Total", row.get("power_total_W", "")),
                 ("Internal", row.get("power_internal_W", "")),
