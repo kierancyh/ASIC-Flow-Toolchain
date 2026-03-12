@@ -97,6 +97,7 @@ permissions:
 
 env:
   PYTHONUNBUFFERED: "1"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   plan:
@@ -123,9 +124,9 @@ jobs:
       summary_synth_strategy: ${{ steps.summary_synth.outputs.summary_synth_strategy }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -241,7 +242,7 @@ jobs:
           elif variant_override:
               label = f'{variant_override} (variant.yaml ll_policy.synth_strategy)'
           else:
-              label = 'Default (not overridden)'
+              label = 'Default'
 
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
               print(f'summary_synth_strategy={label}', file=f)
@@ -379,7 +380,7 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install volare pyyaml
       - name: Restore PDK cache
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.volare
           key: ${{ runner.os }}-sky130-volare-${{ needs.plan.outputs.open_pdks_rev }}
@@ -427,7 +428,7 @@ jobs:
             --out-root "ci_out/${VARIANT}"
       - name: Upload coarse artifacts
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: coarse-${{ needs.plan.outputs.resolved_variant }}-${{ matrix.clock_ns }}ns
           path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
@@ -451,7 +452,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Download accumulated artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v4
         with:
           path: downloaded_artifacts
       - name: Select coarse bracket
@@ -945,6 +946,11 @@ jobs:
             --summary-antenna-repair "${{ needs.plan.outputs.summary_antenna_repair }}" \
             --summary-heuristic-diode-insertion "${{ needs.plan.outputs.summary_heuristic_diode_insertion }}" \
             --summary-post-grt-design-repair "${{ needs.plan.outputs.summary_post_grt_design_repair }}" \
+            --summary-post-grt-resizer-timing "${{ needs.plan.outputs.summary_post_grt_resizer_timing }}" \
+            --summary-synth-strategy "${{ needs.plan.outputs.summary_synth_strategy }}" \
+            --summary-antenna-repair "${{ needs.plan.outputs.summary_antenna_repair }}" \
+            --summary-heuristic-diode-insertion "${{ needs.plan.outputs.summary_heuristic_diode_insertion }}" \
+            --summary-post-grt-design-repair "${{ needs.plan.outputs.summary_post_grt_design_repair }}" \
             --summary-post-grt-resizer-timing "${{ needs.plan.outputs.summary_post_grt_resizer_timing }}"
       - name: Validate explorer outputs
         run: |
@@ -1010,9 +1016,7 @@ jobs:
       - name: Workflow Summary
         run: |
           {
-            echo "## Published Run Explorer Summary"
-            echo ""
-            echo "To view detailed metrics per run:"
+            echo "## Published Run Explorer"
             echo ""
             echo "- [Open ASIC Flow Run Explorer](${{ steps.deployment.outputs.page_url }})"
           } >> "$GITHUB_STEP_SUMMARY"
