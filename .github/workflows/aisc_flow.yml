@@ -402,6 +402,7 @@ jobs:
             --variant "${VARIANT}" \
             --pdk-root "${PDK_ROOT}" \
             --openlane-image "${OPENLANE_IMAGE}" \
+            --stage-label "coarse" \
             --start-clock-ns "${CLOCK_NS}" \
             --min-clock-ns "${CLOCK_NS}" \
             --max-clock-ns "${CLOCK_NS}" \
@@ -448,20 +449,26 @@ jobs:
         run: |
           python tools/scripts/select_clock_bracket.py \
             --artifacts-root downloaded_artifacts \
+            --stage-label "coarse" \
+            --next-stage-label "5 ns" \
             --next-step-ns "${{ needs.plan.outputs.mid_refine_step_ns }}" \
+            --summary-md coarse_bracket_summary.md \
+            --summary-json coarse_bracket_summary.json \
             --github-output "$GITHUB_OUTPUT"
       - name: Append coarse bracket summary
         if: always()
         run: |
-          {
-            echo "## Select Coarse Bracket"
-            echo ""
-            echo "- Upper pass: \`${{ steps.select.outputs.upper_pass_clock_ns }} ns\`"
-            echo "- Lower fail: \`${{ steps.select.outputs.lower_fail_clock_ns }} ns\`"
-            echo "- Lower fail kind: \`${{ steps.select.outputs.lower_fail_kind }}\`"
-            echo "- Mid refine matrix: \`${{ steps.select.outputs.matrix_json }}\`"
-            echo "- Remarks: \`${{ steps.select.outputs.reason }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+          cat coarse_bracket_summary.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload coarse bracket summary
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: coarse-bracket-summary
+          path: |
+            coarse_bracket_summary.md
+            coarse_bracket_summary.json
+          if-no-files-found: error
+          include-hidden-files: true
 
   mid-refine-sweep:
     name: Mid Refine Sweep (${{ matrix.clock_ns }} ns)
@@ -518,6 +525,7 @@ jobs:
             --variant "${VARIANT}" \
             --pdk-root "${PDK_ROOT}" \
             --openlane-image "${OPENLANE_IMAGE}" \
+            --stage-label "5 ns" \
             --start-clock-ns "${CLOCK_NS}" \
             --min-clock-ns "${CLOCK_NS}" \
             --max-clock-ns "${CLOCK_NS}" \
@@ -564,20 +572,26 @@ jobs:
         run: |
           python tools/scripts/select_clock_bracket.py \
             --artifacts-root downloaded_artifacts \
+            --stage-label "5 ns" \
+            --next-stage-label "1.0 ns" \
             --next-step-ns "${{ needs.plan.outputs.refine1_step_ns }}" \
+            --summary-md mid_bracket_summary.md \
+            --summary-json mid_bracket_summary.json \
             --github-output "$GITHUB_OUTPUT"
       - name: Append mid bracket summary
         if: always()
         run: |
-          {
-            echo "## Select Mid Bracket"
-            echo ""
-            echo "- Upper pass: \`${{ steps.select.outputs.upper_pass_clock_ns }} ns\`"
-            echo "- Lower fail: \`${{ steps.select.outputs.lower_fail_clock_ns }} ns\`"
-            echo "- Lower fail kind: \`${{ steps.select.outputs.lower_fail_kind }}\`"
-            echo "- Refine-1 matrix: \`${{ steps.select.outputs.matrix_json }}\`"
-            echo "- Remarks: \`${{ steps.select.outputs.reason }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+          cat mid_bracket_summary.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload mid bracket summary
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: mid-bracket-summary
+          path: |
+            mid_bracket_summary.md
+            mid_bracket_summary.json
+          if-no-files-found: error
+          include-hidden-files: true
 
   refine-sweep-1:
     name: Refine Sweep 1 (${{ matrix.clock_ns }} ns)
@@ -634,6 +648,7 @@ jobs:
             --variant "${VARIANT}" \
             --pdk-root "${PDK_ROOT}" \
             --openlane-image "${OPENLANE_IMAGE}" \
+            --stage-label "1.0 ns" \
             --start-clock-ns "${CLOCK_NS}" \
             --min-clock-ns "${CLOCK_NS}" \
             --max-clock-ns "${CLOCK_NS}" \
@@ -680,20 +695,26 @@ jobs:
         run: |
           python tools/scripts/select_clock_bracket.py \
             --artifacts-root downloaded_artifacts \
+            --stage-label "1.0 ns" \
+            --next-stage-label "0.5 ns" \
             --next-step-ns "${{ needs.plan.outputs.refine2_step_ns }}" \
+            --summary-md refine2_bracket_summary.md \
+            --summary-json refine2_bracket_summary.json \
             --github-output "$GITHUB_OUTPUT"
       - name: Append refine-2 bracket summary
         if: always()
         run: |
-          {
-            echo "## Select Refine 2 Bracket"
-            echo ""
-            echo "- Upper pass: \`${{ steps.select.outputs.upper_pass_clock_ns }} ns\`"
-            echo "- Lower fail: \`${{ steps.select.outputs.lower_fail_clock_ns }} ns\`"
-            echo "- Lower fail kind: \`${{ steps.select.outputs.lower_fail_kind }}\`"
-            echo "- Refine-2 matrix: \`${{ steps.select.outputs.matrix_json }}\`"
-            echo "- Remarks: \`${{ steps.select.outputs.reason }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+          cat refine2_bracket_summary.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload refine-2 bracket summary
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: refine2-bracket-summary
+          path: |
+            refine2_bracket_summary.md
+            refine2_bracket_summary.json
+          if-no-files-found: error
+          include-hidden-files: true
 
   refine-sweep-2:
     name: Refine Sweep 2 (${{ matrix.clock_ns }} ns)
@@ -750,6 +771,7 @@ jobs:
             --variant "${VARIANT}" \
             --pdk-root "${PDK_ROOT}" \
             --openlane-image "${OPENLANE_IMAGE}" \
+            --stage-label "0.5 ns" \
             --start-clock-ns "${CLOCK_NS}" \
             --min-clock-ns "${CLOCK_NS}" \
             --max-clock-ns "${CLOCK_NS}" \
@@ -796,20 +818,26 @@ jobs:
         run: |
           python tools/scripts/select_clock_bracket.py \
             --artifacts-root downloaded_artifacts \
+            --stage-label "0.5 ns" \
+            --next-stage-label "0.125 ns" \
             --next-step-ns "${{ needs.plan.outputs.refine3_step_ns }}" \
+            --summary-md refine3_bracket_summary.md \
+            --summary-json refine3_bracket_summary.json \
             --github-output "$GITHUB_OUTPUT"
       - name: Append refine-3 bracket summary
         if: always()
         run: |
-          {
-            echo "## Select Refine 3 Bracket"
-            echo ""
-            echo "- Upper pass: \`${{ steps.select.outputs.upper_pass_clock_ns }} ns\`"
-            echo "- Lower fail: \`${{ steps.select.outputs.lower_fail_clock_ns }} ns\`"
-            echo "- Lower fail kind: \`${{ steps.select.outputs.lower_fail_kind }}\`"
-            echo "- Refine-3 matrix: \`${{ steps.select.outputs.matrix_json }}\`"
-            echo "- Remarks: \`${{ steps.select.outputs.reason }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+          cat refine3_bracket_summary.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload refine-3 bracket summary
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: refine3-bracket-summary
+          path: |
+            refine3_bracket_summary.md
+            refine3_bracket_summary.json
+          if-no-files-found: error
+          include-hidden-files: true
 
   refine-sweep-3:
     name: Refine Sweep 3 (${{ matrix.clock_ns }} ns)
@@ -866,6 +894,7 @@ jobs:
             --variant "${VARIANT}" \
             --pdk-root "${PDK_ROOT}" \
             --openlane-image "${OPENLANE_IMAGE}" \
+            --stage-label "0.125 ns" \
             --start-clock-ns "${CLOCK_NS}" \
             --min-clock-ns "${CLOCK_NS}" \
             --max-clock-ns "${CLOCK_NS}" \

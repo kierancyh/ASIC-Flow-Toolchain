@@ -195,19 +195,37 @@ def write_placeholder_metrics(
     (attempt_dir / "metrics.md").write_text("\n".join(md_lines), encoding="utf-8")
 
 
+def stage_slug(stage_label: str) -> str:
+    value = stage_label.strip().lower()
+    if not value:
+        return "autoflow"
+    return (
+        value.replace(" ", "")
+        .replace(".", "p")
+        .replace("/", "_")
+        .replace("-", "_")
+    )
+
+
 def write_run_meta(
     attempt_dir: Path,
     *,
     variant: str,
     clock_ns: float,
     synth_strategy_override: str = "",
+    stage_label: str = "",
 ) -> None:
+    stage_value = stage_label.strip()
+    stage_token = stage_slug(stage_value)
     meta = {
         "variant": variant,
         "clock_ns_requested": clock_ns,
         "github_run_id": os.environ.get("GITHUB_RUN_ID", ""),
+        "github_run_number": os.environ.get("GITHUB_RUN_NUMBER", ""),
+        "commit_sha": os.environ.get("GITHUB_SHA", ""),
         "synth_strategy_override": synth_strategy_override or "",
-        "artifact_name": f"autoflow-{variant}",
+        "stage_label": stage_value,
+        "artifact_name": f"{stage_token}-{variant}",
     }
     (attempt_dir / "run_meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
@@ -277,18 +295,22 @@ def write_attempt_manifest(
     attempt_dir: Path,
     *,
     variant: str,
+    stage_label: str,
     clock_ns: float,
     status: str,
     reason: str,
+    config_generation_rc: int,
     openlane_rc: int,
     run_dir: Optional[Path],
     metrics_row: Dict[str, str],
 ) -> None:
     manifest = {
         "variant": variant,
+        "stage_label": stage_label,
         "clock_ns": clock_ns,
         "status": status,
         "selection_reason": reason,
+        "config_generation_rc": config_generation_rc,
         "openlane_rc": openlane_rc,
         "run_dir": str(run_dir) if run_dir else "",
         "files": {
@@ -301,6 +323,8 @@ def write_attempt_manifest(
             "final_gds_dir": (attempt_dir / "final" / "gds").exists(),
             "openlane_run_dir": (attempt_dir / "openlane_run").exists(),
             "viewer_html": (attempt_dir / "viewer.html").exists(),
+            "failure_summary_md": (attempt_dir / "failure_summary.md").exists(),
+            "failure_summary_json": (attempt_dir / "failure_summary.json").exists(),
         },
         "metrics": {key: metrics_row.get(key, "") for key in CSV_FIELDS},
     }
@@ -347,10 +371,19 @@ def classify_metrics_row(metrics_row: Dict[str, str]) -> Tuple[str, str]:
 
 def classify_attempt(
     *,
+    config_generated: bool,
+    config_generation_rc: int,
+    openlane_invoked: bool,
     run_dir: Optional[Path],
     metrics_row: Dict[str, str],
     openlane_rc: int,
 ) -> Tuple[str, str]:
+    if not config_generated:
+        return "FLOW_FAIL", f"Config generation failed with code {config_generation_rc}."
+
+    if not openlane_invoked:
+        return "FLOW_FAIL", "OpenLane was not invoked."
+
     if run_dir is None:
         return "FLOW_FAIL", f"No OpenLane run directory found (rc={openlane_rc})."
 
@@ -465,6 +498,141 @@ def resolve_summary_path() -> Optional[Path]:
     return None
 
 
+def bool_yn(value: bool) -> str:
+    return "yes" if value else "no"
+
+
+def first_render_file(attempt_dir: Path) -> Optional[Path]:
+    renders_dir = attempt_dir / "renders"
+    if not renders_dir.exists():
+        return None
+    for pattern in ("*.png", "*.jpg", "*.jpeg", "*.webp"):
+        files = sorted(renders_dir.glob(pattern))
+        if files:
+            return files[0]
+    return None
+
+
+def build_failure_checks(
+    attempt_dir: Path,
+    *,
+    config_generated: bool,
+    config_generation_rc: int,
+    openlane_invoked: bool,
+    openlane_rc: int,
+    run_dir: Optional[Path],
+    metrics_row: Dict[str, str],
+) -> Dict[str, Any]:
+    checks = {
+        "config_generated": config_generated,
+        "config_generation_rc": config_generation_rc,
+        "openlane_invoked": openlane_invoked,
+        "openlane_rc": openlane_rc,
+        "run_dir_found": run_dir is not None,
+        "metrics_csv_present": (attempt_dir / "metrics.csv").exists(),
+        "metrics_raw_present": (attempt_dir / "metrics_raw.json").exists(),
+        "timing_present": has_valid_timing_metrics(metrics_row),
+        "gds_present": any((attempt_dir / "final" / "gds").glob("*.gds")) if (attempt_dir / "final" / "gds").exists() else False,
+        "render_present": first_render_file(attempt_dir) is not None,
+        "openlane_run_present": (attempt_dir / "openlane_run").exists(),
+        "viewer_present": (attempt_dir / "viewer.html").exists(),
+    }
+    return checks
+
+
+def infer_failure_phase(checks: Dict[str, Any]) -> str:
+    if not checks.get("config_generated", False):
+        return "config-generation"
+    if not checks.get("openlane_invoked", False):
+        return "openlane-not-invoked"
+    if not checks.get("run_dir_found", False):
+        return "openlane-launch-or-run-dir-discovery"
+    if checks.get("run_dir_found", False) and not checks.get("metrics_csv_present", False):
+        return "implementation-before-metrics"
+    if checks.get("metrics_csv_present", False) and not checks.get("timing_present", False):
+        return "metrics-extraction-or-incomplete-run"
+    return "flow-failed-before-final-signoff"
+
+
+def write_failure_summary(
+    attempt_dir: Path,
+    *,
+    variant: str,
+    stage_label: str,
+    clock_ns: float,
+    attempt: int,
+    status: str,
+    reason: str,
+    config_generated: bool,
+    config_generation_rc: int,
+    openlane_invoked: bool,
+    openlane_rc: int,
+    run_dir: Optional[Path],
+    metrics_row: Dict[str, str],
+) -> None:
+    checks = build_failure_checks(
+        attempt_dir,
+        config_generated=config_generated,
+        config_generation_rc=config_generation_rc,
+        openlane_invoked=openlane_invoked,
+        openlane_rc=openlane_rc,
+        run_dir=run_dir,
+        metrics_row=metrics_row,
+    )
+    likely_failure_phase = infer_failure_phase(checks)
+
+    payload = {
+        "variant": variant,
+        "stage_label": stage_label,
+        "clock_ns": clock_ns,
+        "attempt": attempt,
+        "github_run_id": os.environ.get("GITHUB_RUN_ID", ""),
+        "github_run_number": os.environ.get("GITHUB_RUN_NUMBER", ""),
+        "commit_sha": os.environ.get("GITHUB_SHA", ""),
+        "status": status,
+        "reason": reason,
+        "config_generation_rc": config_generation_rc,
+        "openlane_rc": openlane_rc,
+        "run_dir": str(run_dir) if run_dir else "",
+        "checks": checks,
+        "likely_failure_phase": likely_failure_phase,
+    }
+    (attempt_dir / "failure_summary.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    lines = [
+        "# FLOW_FAIL diagnostic",
+        "",
+        f"- Variant: {variant}",
+        f"- Stage: {stage_label or 'unspecified'}",
+        f"- Requested clock: {clock_ns} ns",
+        f"- Attempt: {attempt:02d}",
+        f"- GitHub run: {os.environ.get('GITHUB_RUN_ID', '')}",
+        f"- Commit: {os.environ.get('GITHUB_SHA', '')}",
+        "",
+        "## Failure classification",
+        f"- Final status: {status}",
+        f"- Primary reason: {reason}",
+        "",
+        "## Execution checkpoints",
+        f"- Config generated: {bool_yn(checks['config_generated'])}",
+        f"- Config generation return code: {checks['config_generation_rc']}",
+        f"- OpenLane invoked: {bool_yn(checks['openlane_invoked'])}",
+        f"- OpenLane return code: {checks['openlane_rc']}",
+        f"- Run directory discovered: {bool_yn(checks['run_dir_found'])}",
+        f"- metrics.csv present: {bool_yn(checks['metrics_csv_present'])}",
+        f"- metrics_raw.json present: {bool_yn(checks['metrics_raw_present'])}",
+        f"- Valid setup timing present: {bool_yn(checks['timing_present'])}",
+        f"- GDS present: {bool_yn(checks['gds_present'])}",
+        f"- Render present: {bool_yn(checks['render_present'])}",
+        f"- OpenLane run copied: {bool_yn(checks['openlane_run_present'])}",
+        f"- Viewer HTML present: {bool_yn(checks['viewer_present'])}",
+        "",
+        "## Likely failing phase",
+        f"- {likely_failure_phase}",
+    ]
+    (attempt_dir / "failure_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--variant", default="")
@@ -472,6 +640,7 @@ def main() -> None:
     ap.add_argument("--openlane-image", required=True)
     ap.add_argument("--clock-ns", dest="clock_ns", type=float, required=False)
     ap.add_argument("--start-clock-ns", dest="clock_ns", type=float, required=False, help=argparse.SUPPRESS)
+    ap.add_argument("--stage-label", default="")
     ap.add_argument("--min-clock-ns", type=float, default=5.0)
     ap.add_argument("--max-clock-ns", type=float, default=200.0)
     ap.add_argument("--initial-step-ns", type=float, default=20.0)
@@ -494,6 +663,7 @@ def main() -> None:
 
     session_meta = {
         "variant": safe_variant,
+        "stage_label": args.stage_label,
         "clock_ns": args.clock_ns,
         "min_clock_ns": args.min_clock_ns,
         "max_clock_ns": args.max_clock_ns,
@@ -503,6 +673,8 @@ def main() -> None:
         "openlane_image": args.openlane_image,
         "pdk_root": args.pdk_root,
         "github_run_id": os.environ.get("GITHUB_RUN_ID", ""),
+        "github_run_number": os.environ.get("GITHUB_RUN_NUMBER", ""),
+        "commit_sha": os.environ.get("GITHUB_SHA", ""),
         "synth_strategy_override": args.synth_strategy or "",
     }
     (out_root / "_autoflow_session.json").write_text(json.dumps(session_meta, indent=2), encoding="utf-8")
@@ -542,14 +714,15 @@ def main() -> None:
                 variant=safe_variant,
                 clock_ns=rounded_current,
                 synth_strategy_override=args.synth_strategy,
+                stage_label=args.stage_label,
             )
             (attempt_dir / "attempt_started.txt").write_text(
-                f"attempt={attempt}\nclock_ns={rounded_current}\nstarted_at={int(time.time())}\n",
+                f"attempt={attempt}\nclock_ns={rounded_current}\nstage_label={args.stage_label}\nstarted_at={int(time.time())}\n",
                 encoding="utf-8",
             )
 
             cfg_path = ROOT / "config.json"
-            sh(
+            config_generation_rc = sh(
                 [
                     sys.executable,
                     str(ROOT / "tools/scripts/gen_config.py"),
@@ -573,87 +746,123 @@ def main() -> None:
                     str(cfg_path),
                 ],
                 cwd=ROOT,
-                check=True,
-            )
-
-            start_ts = time.time()
-            openlane_rc = sh(
-                [
-                    "docker",
-                    "run",
-                    "--rm",
-                    "-v",
-                    f"{ROOT}:/work",
-                    "-v",
-                    f"{args.pdk_root}:/pdk",
-                    "-w",
-                    "/work",
-                    args.openlane_image,
-                    "bash",
-                    "-lc",
-                    "python3 -m openlane --pdk-root /pdk config.json",
-                ],
-                cwd=ROOT,
                 check=False,
             )
-            print(f"OpenLane return code: {openlane_rc}", flush=True)
+            config_generated = config_generation_rc == 0
+            print(f"gen_config return code: {config_generation_rc}", flush=True)
 
-            run_dir = find_latest_run_dir(start_ts)
-            if run_dir is None:
-                print("No run directory detected after attempt.", flush=True)
-                (attempt_dir / "run_dir_used.txt").write_text("(missing)\n", encoding="utf-8")
-                write_placeholder_metrics(attempt_dir, clock_ns=rounded_current, status="FLOW_FAIL")
-            else:
-                print(f"Using run directory: {run_dir}", flush=True)
-                (attempt_dir / "run_dir_used.txt").write_text(f"{run_dir}\n", encoding="utf-8")
+            openlane_invoked = False
+            openlane_rc = 0
+            run_dir: Optional[Path] = None
 
-                extract_rc = sh(
+            if config_generated:
+                start_ts = time.time()
+                openlane_invoked = True
+                openlane_rc = sh(
                     [
-                        sys.executable,
-                        str(ROOT / "tools/scripts/extract_metrics.py"),
-                        str(run_dir),
-                        "--out",
-                        str(attempt_dir),
-                        "--clock-ns",
-                        str(rounded_current),
+                        "docker",
+                        "run",
+                        "--rm",
+                        "-v",
+                        f"{ROOT}:/work",
+                        "-v",
+                        f"{args.pdk_root}:/pdk",
+                        "-w",
+                        "/work",
+                        args.openlane_image,
+                        "bash",
+                        "-lc",
+                        "python3 -m openlane --pdk-root /pdk config.json",
                     ],
                     cwd=ROOT,
                     check=False,
                 )
-                print(f"extract_metrics return code: {extract_rc}", flush=True)
+                print(f"OpenLane return code: {openlane_rc}", flush=True)
 
-                sh(
-                    [
-                        sys.executable,
-                        str(ROOT / "tools/scripts/render_gds.py"),
-                        "--run-root",
-                        str(run_dir),
-                        "--out",
-                        str(attempt_dir / "renders"),
-                    ],
-                    cwd=ROOT,
-                    check=False,
-                )
-                sh(
-                    [
-                        sys.executable,
-                        str(ROOT / "tools/scripts/build_layout_viewer.py"),
-                        "--out-dir",
-                        str(attempt_dir),
-                    ],
-                    cwd=ROOT,
-                    check=False,
-                )
-
-                maybe_copy_metrics_raw(run_dir, attempt_dir)
-                maybe_copy_gds(run_dir, attempt_dir)
-                maybe_copy_openlane_run(run_dir, attempt_dir)
-
-                if not (attempt_dir / "metrics.csv").exists():
+                run_dir = find_latest_run_dir(start_ts)
+                if run_dir is None:
+                    print("No run directory detected after attempt.", flush=True)
+                    (attempt_dir / "run_dir_used.txt").write_text("(missing)\n", encoding="utf-8")
                     write_placeholder_metrics(attempt_dir, clock_ns=rounded_current, status="FLOW_FAIL")
+                else:
+                    print(f"Using run directory: {run_dir}", flush=True)
+                    (attempt_dir / "run_dir_used.txt").write_text(f"{run_dir}\n", encoding="utf-8")
+
+                    extract_rc = sh(
+                        [
+                            sys.executable,
+                            str(ROOT / "tools/scripts/extract_metrics.py"),
+                            str(run_dir),
+                            "--out",
+                            str(attempt_dir),
+                            "--clock-ns",
+                            str(rounded_current),
+                        ],
+                        cwd=ROOT,
+                        check=False,
+                    )
+                    print(f"extract_metrics return code: {extract_rc}", flush=True)
+
+                    sh(
+                        [
+                            sys.executable,
+                            str(ROOT / "tools/scripts/render_gds.py"),
+                            "--run-root",
+                            str(run_dir),
+                            "--out",
+                            str(attempt_dir / "renders"),
+                        ],
+                        cwd=ROOT,
+                        check=False,
+                    )
+                    sh(
+                        [
+                            sys.executable,
+                            str(ROOT / "tools/scripts/build_layout_viewer.py"),
+                            "--out-dir",
+                            str(attempt_dir),
+                        ],
+                        cwd=ROOT,
+                        check=False,
+                    )
+
+                    maybe_copy_metrics_raw(run_dir, attempt_dir)
+                    maybe_copy_gds(run_dir, attempt_dir)
+                    maybe_copy_openlane_run(run_dir, attempt_dir)
+
+                    if not (attempt_dir / "metrics.csv").exists():
+                        write_placeholder_metrics(attempt_dir, clock_ns=rounded_current, status="FLOW_FAIL")
+            else:
+                print("Config generation failed; skipping OpenLane invocation for this attempt.", flush=True)
+                (attempt_dir / "run_dir_used.txt").write_text("(config-generation-failed)\n", encoding="utf-8")
+                write_placeholder_metrics(attempt_dir, clock_ns=rounded_current, status="FLOW_FAIL")
 
             metrics_row = read_csv_row(attempt_dir / "metrics.csv")
-            status, reason = classify_attempt(run_dir=run_dir, metrics_row=metrics_row, openlane_rc=openlane_rc)
+            status, reason = classify_attempt(
+                config_generated=config_generated,
+                config_generation_rc=config_generation_rc,
+                openlane_invoked=openlane_invoked,
+                run_dir=run_dir,
+                metrics_row=metrics_row,
+                openlane_rc=openlane_rc,
+            )
+
+            if status == "FLOW_FAIL":
+                write_failure_summary(
+                    attempt_dir,
+                    variant=safe_variant,
+                    stage_label=args.stage_label,
+                    clock_ns=rounded_current,
+                    attempt=attempt,
+                    status=status,
+                    reason=reason,
+                    config_generated=config_generated,
+                    config_generation_rc=config_generation_rc,
+                    openlane_invoked=openlane_invoked,
+                    openlane_rc=openlane_rc,
+                    run_dir=run_dir,
+                    metrics_row=metrics_row,
+                )
 
             history_row: Dict[str, Any] = {
                 "attempt": attempt,
@@ -667,7 +876,7 @@ def main() -> None:
                 "drc_errors": metrics_row.get("drc_errors", ""),
                 "lvs_errors": metrics_row.get("lvs_errors", ""),
                 "antenna_violations": metrics_row.get("antenna_violations", ""),
-                "openlane_rc": openlane_rc,
+                "openlane_rc": openlane_rc if openlane_invoked else config_generation_rc,
                 "run_dir": str(run_dir) if run_dir else "",
                 "attempt_dir": str(attempt_dir.relative_to(ROOT)),
             }
@@ -677,9 +886,11 @@ def main() -> None:
             write_attempt_manifest(
                 attempt_dir,
                 variant=safe_variant,
+                stage_label=args.stage_label,
                 clock_ns=rounded_current,
                 status=status,
                 reason=reason,
+                config_generation_rc=config_generation_rc,
                 openlane_rc=openlane_rc,
                 run_dir=run_dir,
                 metrics_row=metrics_row,
@@ -689,14 +900,14 @@ def main() -> None:
                 f"Attempt {attempt} | {rounded_current} ns | {status} | "
                 f"WNS={history_row['setup_wns_ns']} | TNS={history_row['setup_tns_ns']} | "
                 f"DRC={history_row['drc_errors']} | LVS={history_row['lvs_errors']} | "
-                f"ANT={history_row['antenna_violations']} | RC={openlane_rc} | {reason}",
+                f"ANT={history_row['antenna_violations']} | RC={history_row['openlane_rc']} | {reason}",
                 flush=True,
             )
             append_summary(
                 summary_path,
                 f"| {attempt} | {rounded_current} | {status} | {history_row['setup_wns_ns']} | "
                 f"{history_row['setup_tns_ns']} | {history_row['drc_errors']} | {history_row['lvs_errors']} | "
-                f"{history_row['antenna_violations']} | {openlane_rc} | {reason} |",
+                f"{history_row['antenna_violations']} | {history_row['openlane_rc']} | {reason} |",
             )
 
             if status == "PASS":
@@ -731,6 +942,7 @@ def main() -> None:
     (out_root / "_autoflow_best.json").write_text(json.dumps(best, indent=2), encoding="utf-8")
     status_payload = {
         "variant": safe_variant,
+        "stage_label": args.stage_label,
         "attempt_count": len(history),
         "pass_count": len(passing),
         "fail_count": len(history) - len(passing),

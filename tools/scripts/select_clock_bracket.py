@@ -153,12 +153,93 @@ def write_outputs(
         print(f"reason={reason}", file=f)
 
 
+def write_bracket_summaries(
+    *,
+    summary_md: Optional[Path],
+    summary_json: Optional[Path],
+    stage_label: str,
+    next_stage_label: str,
+    next_step_ns: Optional[float],
+    upper_pass: float,
+    lower_fail: float,
+    lower_fail_kind: str,
+    matrix: List[float],
+    best_by_clock: Dict[float, str],
+) -> None:
+    pass_clocks = sorted(clock for clock, status in best_by_clock.items() if status == "PASS")
+    fail_clocks = sorted(clock for clock, status in best_by_clock.items() if status != "PASS")
+    bracket_width = round(upper_pass - lower_fail, 6)
+    matrix_payload = [
+        int(v) if float(v).is_integer() else round(v, 6)
+        for v in matrix
+    ]
+
+    payload = {
+        "stage_label": stage_label,
+        "next_stage_label": next_stage_label,
+        "next_step_ns": next_step_ns,
+        "upper_pass": upper_pass,
+        "lower_fail": lower_fail,
+        "lower_fail_kind": lower_fail_kind,
+        "bracket_width": bracket_width,
+        "planned_next_clocks": matrix_payload,
+        "pass_clocks": pass_clocks,
+        "fail_clocks": fail_clocks,
+        "reason": (
+            f"{fmt_num(upper_pass)} ns is the fastest PASS found so far and "
+            f"{fmt_num(lower_fail)} ns is the nearest {lower_fail_kind} below it."
+        ),
+    }
+
+    if summary_json is not None:
+        summary_json.parent.mkdir(parents=True, exist_ok=True)
+        summary_json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    if summary_md is not None:
+        summary_md.parent.mkdir(parents=True, exist_ok=True)
+        pass_str = ", ".join(fmt_num(v) for v in pass_clocks) if pass_clocks else "(none)"
+        fail_str = ", ".join(fmt_num(v) for v in fail_clocks) if fail_clocks else "(none)"
+        planned_str = ", ".join(fmt_num(v) for v in matrix_payload) if matrix_payload else "(none)"
+        next_step_str = fmt_num(next_step_ns) if next_step_ns is not None else "n/a"
+        lines = [
+            "# Bracket decision summary",
+            "",
+            "## Stage completed",
+            f"- Stage: {stage_label}",
+            f"- Lower-fail classification priority used: {lower_fail_kind}",
+            "",
+            "## Results",
+            f"- PASS clocks: {pass_str}",
+            f"- FAIL clocks: {fail_str}",
+            "",
+            "## Selected bracket",
+            f"- upper_pass = {fmt_num(upper_pass)} ns",
+            f"- lower_fail = {fmt_num(lower_fail)} ns",
+            f"- bracket_width = {fmt_num(bracket_width)} ns",
+            "",
+            "## Next action",
+            f"- Next stage: {next_stage_label}",
+            f"- Next step size: {next_step_str} ns",
+            f"- Planned clocks: {planned_str}",
+            "",
+            "## Reasoning",
+            f"{fmt_num(upper_pass)} ns is the fastest passing point found so far.",
+            f"{fmt_num(lower_fail)} ns is the nearest failing point below it.",
+            f"Therefore the optimum boundary lies inside ({fmt_num(lower_fail)}, {fmt_num(upper_pass)}].",
+        ]
+        summary_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Select the current fastest PASS and highest FAIL-below-PASS bracket from downloaded artifacts."
     )
     ap.add_argument("--artifacts-root", type=Path, required=True)
     ap.add_argument("--next-step-ns", type=float, default=None, help="If provided, emit a downward matrix between the bracket endpoints.")
+    ap.add_argument("--stage-label", default="unspecified")
+    ap.add_argument("--next-stage-label", default="next")
+    ap.add_argument("--summary-md", type=Path, default=None)
+    ap.add_argument("--summary-json", type=Path, default=None)
     ap.add_argument("--github-output", type=Path, required=True)
     args = ap.parse_args()
 
@@ -195,6 +276,19 @@ def main() -> None:
         lower_fail_kind=lower_fail_kind,
         matrix=matrix,
         reason=reason,
+    )
+
+    write_bracket_summaries(
+        summary_md=args.summary_md,
+        summary_json=args.summary_json,
+        stage_label=args.stage_label,
+        next_stage_label=args.next_stage_label,
+        next_step_ns=args.next_step_ns,
+        upper_pass=upper_pass,
+        lower_fail=lower_fail,
+        lower_fail_kind=lower_fail_kind,
+        matrix=matrix,
+        best_by_clock=best_by_clock,
     )
 
 
