@@ -16,7 +16,6 @@ def main() -> None:
     ap = argparse.ArgumentParser(
         description="Generate a full coarse sweep matrix from the minimum floor to the maximum cap at a fixed step."
     )
-    ap.add_argument("--start-clock-ns", type=float, required=False, default=0.0, help="Accepted for compatibility; not used in full-span coarse mode.")
     ap.add_argument("--min-clock-ns", type=float, required=True)
     ap.add_argument("--max-clock-ns", type=float, required=True)
     ap.add_argument("--step-ns", type=float, required=True)

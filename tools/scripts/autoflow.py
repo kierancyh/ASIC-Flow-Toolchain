@@ -470,7 +470,8 @@ def main() -> None:
     ap.add_argument("--variant", default="")
     ap.add_argument("--pdk-root", required=True)
     ap.add_argument("--openlane-image", required=True)
-    ap.add_argument("--start-clock-ns", type=float, required=True)
+    ap.add_argument("--clock-ns", dest="clock_ns", type=float, required=False)
+    ap.add_argument("--start-clock-ns", dest="clock_ns", type=float, required=False, help=argparse.SUPPRESS)
     ap.add_argument("--min-clock-ns", type=float, default=5.0)
     ap.add_argument("--max-clock-ns", type=float, default=200.0)
     ap.add_argument("--initial-step-ns", type=float, default=20.0)
@@ -493,7 +494,7 @@ def main() -> None:
 
     session_meta = {
         "variant": safe_variant,
-        "start_clock_ns": args.start_clock_ns,
+        "clock_ns": args.clock_ns,
         "min_clock_ns": args.min_clock_ns,
         "max_clock_ns": args.max_clock_ns,
         "initial_step_ns": args.initial_step_ns,
@@ -516,7 +517,10 @@ def main() -> None:
     pass_clocks: List[float] = []
     fail_clocks: List[float] = []
 
-    current = max(args.min_clock_ns, min(args.max_clock_ns, args.start_clock_ns))
+    if args.clock_ns is None:
+        raise SystemExit("One of --clock-ns or --start-clock-ns must be provided")
+
+    current = max(args.min_clock_ns, min(args.max_clock_ns, args.clock_ns))
     step = max(args.initial_step_ns, args.tolerance_ns)
     tried: set[float] = set()
 

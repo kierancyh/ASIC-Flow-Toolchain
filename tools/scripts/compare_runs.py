@@ -5,6 +5,7 @@ import argparse
 import csv
 import html
 import json
+import re
 import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -140,6 +141,33 @@ def parse_attempt_started(path: Path) -> Dict[str, str]:
     return data
 
 
+def infer_stage_label(row: Dict[str, str]) -> str:
+    haystack = " ".join(
+        [
+            str(row.get("_artifact", "")),
+            str(row.get("_run_dir", "")),
+            str(row.get("_variant", "")),
+        ]
+    ).lower()
+
+    if "coarse" in haystack:
+        return "coarse"
+    if "mid" in haystack or "5ns" in haystack or "5 ns" in haystack or "step5" in haystack:
+        return "5 ns"
+    if "0.125" in haystack or "125ps" in haystack or "refine3" in haystack or "refine_3" in haystack:
+        return "0.125 ns"
+    if "0.5" in haystack or "500ps" in haystack or "refine2" in haystack or "refine_2" in haystack:
+        return "0.5 ns"
+    if "1.0" in haystack or "1ns" in haystack or "1 ns" in haystack or "refine1" in haystack or "refine_1" in haystack:
+        return "1.0 ns"
+
+    match = re.search(r"step[_\s-]?([0-9]+(?:\.[0-9]+)?)", haystack)
+    if match:
+        return f"{match.group(1)} ns"
+
+    return ""
+
+
 def collect_rows(artifacts_root: Path) -> List[Dict[str, str]]:
     rows: List[Dict[str, str]] = []
     seen: set[Path] = set()
@@ -172,6 +200,7 @@ def collect_rows(artifacts_root: Path) -> List[Dict[str, str]]:
             row["_attempt_started_at"] = started.get("started_at", "")
             row["status"] = classify_status(row)
             row["selection_reason"] = explain_row(row)
+            row["_stage_label"] = infer_stage_label(row)
             gds = first_gds_path(base_dir)
             rnd = first_render_path(base_dir)
             row["_gds_path"] = str(gds) if gds else ""
@@ -189,6 +218,7 @@ def write_summary_csv(path: Path, rows: List[Dict[str, str]]) -> None:
         "_run_dir",
         "_artifact",
         "_clock_requested",
+        "_stage_label",
         "clock_ns",
         "clock_ns_reported",
         "setup_wns_ns",
@@ -485,6 +515,17 @@ def setting_value(explorer_settings: Dict[str, str], key: str, default: str = "�
     return value if value else default
 
 
+def sortable_number_attr(v: Any) -> str:
+    n = to_float(v)
+    if n is None:
+        return ""
+    return str(n)
+
+
+def sortable_text_attr(v: Any) -> str:
+    return str(v or "").strip()
+
+
 def build_site(
     site_root: Path,
     rows: List[Dict[str, str]],
@@ -613,7 +654,8 @@ a{color:var(--accent);text-decoration:none}
 .wide-table th{
   background:rgba(255,248,240,.92);
   text-align:left;
-  font-size:13px
+  font-size:13px;
+  white-space:nowrap
 }
 
 .kv-table{
@@ -642,6 +684,67 @@ a{color:var(--accent);text-decoration:none}
 .kv-table td:last-child,
 .kv-table th:last-child{
   word-break:break-word
+}
+
+.table-tools{
+  display:flex;
+  gap:12px;
+  flex-wrap:wrap;
+  align-items:end;
+  padding:16px 20px 0
+}
+.table-tools label{
+  display:grid;
+  gap:6px;
+  color:var(--muted);
+  font-size:12px;
+  font-weight:700;
+  text-transform:uppercase
+}
+.table-tools select,
+.table-tools input[type="search"]{
+  min-width:180px;
+  padding:10px 12px;
+  border-radius:10px;
+  border:1px solid var(--border-strong);
+  background:var(--panel-soft);
+  color:var(--text);
+  font:500 13px/1.2 Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif
+}
+.table-tools .inline-check{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:13px;
+  font-weight:600;
+  text-transform:none;
+  color:var(--text);
+  padding-bottom:2px
+}
+.table-tools .summary{
+  margin-left:auto;
+  font-size:13px;
+  color:var(--muted);
+  padding-bottom:4px
+}
+.sort-btn{
+  all:unset;
+  cursor:pointer;
+  font-weight:700;
+  color:var(--text);
+  display:inline-flex;
+  align-items:center;
+  gap:6px
+}
+.sort-btn:hover{
+  color:var(--accent)
+}
+.sort-btn.active{
+  color:var(--accent)
+}
+.sort-indicator{
+  font-size:11px;
+  color:var(--muted)
 }
 
 .badge{
@@ -761,6 +864,7 @@ a{color:var(--accent);text-decoration:none}
   .span-7,.span-5,.span-4,.span-3{grid-column:span 12}
   .kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .metrics-strip{grid-template-columns:1fr}
+  .table-tools .summary{margin-left:0;width:100%}
 }
 @media(max-width:720px){
   .kpi-grid{grid-template-columns:1fr}
@@ -909,6 +1013,7 @@ a{color:var(--accent);text-decoration:none}
             ("Variant", row.get("_variant")),
             ("Run folder", row.get("_run_dir")),
             ("Artifact label", row.get("_artifact")),
+            ("Stage label", row.get("_stage_label")),
             ("Attempt number", row.get("_attempt_number")),
             ("GitHub run ID", row.get("_github_run_id")),
             ("Synthesis override", row.get("_synth_strategy_override")),
@@ -985,6 +1090,7 @@ a{color:var(--accent);text-decoration:none}
 
     best = ordered[0] if ordered else {}
     rows_html: List[str] = []
+    stage_values = sorted({str(row.get("_stage_label", "")).strip() for row in ordered if str(row.get("_stage_label", "")).strip()})
 
     for idx, row in enumerate(ordered):
         run_page = f"runs/{html.escape(row['_site_slug'])}/index.html"
@@ -995,8 +1101,26 @@ a{color:var(--accent);text-decoration:none}
         )
         selected_marker = '<span class="tag">Selected</span>' if idx == 0 else ""
         gds_html = link_button(gds_page, "GDS") if gds_page else "<span>No GDS</span>"
+
+        run_text = f"{row.get('_variant', '')} / {row.get('_run_dir', '')}"
+        selected_flag = "1" if idx == 0 else "0"
+
         rows_html.append(
-            f"<tr>"
+            f'<tr '
+            f'data-selected="{selected_flag}" '
+            f'data-run="{html.escape(sortable_text_attr(run_text))}" '
+            f'data-clock="{html.escape(sortable_number_attr(row.get("clock_ns")))}" '
+            f'data-setup_wns="{html.escape(sortable_number_attr(row.get("setup_wns_ns")))}" '
+            f'data-setup_tns="{html.escape(sortable_number_attr(row.get("setup_tns_ns")))}" '
+            f'data-core_area="{html.escape(sortable_number_attr(row.get("core_area_um2")))}" '
+            f'data-power_total="{html.escape(sortable_number_attr(row.get("power_total_W")))}" '
+            f'data-drc="{html.escape(sortable_number_attr(row.get("drc_errors")))}" '
+            f'data-lvs="{html.escape(sortable_number_attr(row.get("lvs_errors")))}" '
+            f'data-antenna="{html.escape(sortable_number_attr(row.get("antenna_violations")))}" '
+            f'data-ir_drop="{html.escape(sortable_number_attr(row.get("ir_drop_worst_V")))}" '
+            f'data-status="{html.escape(sortable_text_attr(row.get("status")))}" '
+            f'data-stage="{html.escape(sortable_text_attr(row.get("_stage_label")))}" '
+            f'data-remarks="{html.escape(sortable_text_attr(row.get("selection_reason")))}">'
             f"<td>{selected_marker}</td>"
             f'<td><a href="{run_page}"><strong>{html.escape(str(row.get("_variant", "")))} / '
             f'{html.escape(str(row.get("_run_dir", "")))}</strong></a></td>'
@@ -1016,10 +1140,140 @@ a{color:var(--accent);text-decoration:none}
             f"</tr>"
         )
 
+    stage_options_html = "".join(
+        f'<option value="{html.escape(stage)}">{html.escape(stage)}</option>'
+        for stage in stage_values
+    )
+
     theme_widget = build_theme_widget("indexAppearanceButton", "indexThemeWidget")
     theme_script = build_theme_script(
         "indexAppearanceButton", "indexThemeWidget", "asic-flow-theme"
     )
+
+    sort_filter_script = """
+<script>
+(function () {
+  const table = document.querySelector(".wide-table");
+  if (!table) return;
+
+  const tbody = table.querySelector("tbody");
+  const headerButtons = Array.from(document.querySelectorAll(".sort-btn"));
+  const statusFilter = document.getElementById("statusFilter");
+  const stageFilter = document.getElementById("stageFilter");
+  const searchFilter = document.getElementById("searchFilter");
+  const pinSelected = document.getElementById("pinSelected");
+  const visibleSummary = document.getElementById("visibleRowsSummary");
+
+  const allRows = Array.from(tbody.querySelectorAll("tr"));
+  let currentKey = "";
+  let currentDir = "asc";
+
+  const statusRank = {
+    "PASS": 0,
+    "TIMING_FAIL": 1,
+    "SIGNOFF_FAIL": 2,
+    "SIGNOFF_AND_TIMING_FAIL": 3,
+    "FLOW_FAIL": 4
+  };
+
+  function getRowValue(row, key, type) {
+    const raw = (row.dataset[key] || "").trim();
+    if (type === "number") {
+      if (raw === "") return Number.POSITIVE_INFINITY;
+      const parsed = Number(raw);
+      return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+    }
+    if (type === "status") {
+      return Object.prototype.hasOwnProperty.call(statusRank, raw) ? statusRank[raw] : 999;
+    }
+    return raw.toLowerCase();
+  }
+
+  function updateHeaderState() {
+    headerButtons.forEach((btn) => {
+      const indicator = btn.querySelector(".sort-indicator");
+      const isActive = btn.dataset.key === currentKey;
+      btn.classList.toggle("active", isActive);
+      btn.setAttribute("aria-sort", isActive ? (currentDir === "asc" ? "ascending" : "descending") : "none");
+      if (indicator) {
+        indicator.textContent = isActive ? (currentDir === "asc" ? "▲" : "▼") : "↕";
+      }
+    });
+  }
+
+  function applyFilters(rows) {
+    const wantedStatus = (statusFilter && statusFilter.value) ? statusFilter.value : "";
+    const wantedStage = (stageFilter && stageFilter.value) ? stageFilter.value : "";
+    const term = (searchFilter && searchFilter.value) ? searchFilter.value.trim().toLowerCase() : "";
+
+    return rows.filter((row) => {
+      const statusOk = !wantedStatus || (row.dataset.status || "") === wantedStatus;
+      const stageOk = !wantedStage || (row.dataset.stage || "") === wantedStage;
+      const haystack = [
+        row.dataset.run || "",
+        row.dataset.status || "",
+        row.dataset.stage || "",
+        row.dataset.remarks || ""
+      ].join(" ").toLowerCase();
+      const searchOk = !term || haystack.includes(term);
+      return statusOk && stageOk && searchOk;
+    });
+  }
+
+  function render() {
+    let rows = applyFilters(allRows.slice());
+
+    if (currentKey) {
+      const activeBtn = headerButtons.find((btn) => btn.dataset.key === currentKey);
+      const type = activeBtn ? (activeBtn.dataset.type || "text") : "text";
+
+      rows.sort((a, b) => {
+        const av = getRowValue(a, currentKey, type);
+        const bv = getRowValue(b, currentKey, type);
+        if (av < bv) return currentDir === "asc" ? -1 : 1;
+        if (av > bv) return currentDir === "asc" ? 1 : -1;
+        return 0;
+      });
+    }
+
+    if (pinSelected && pinSelected.checked) {
+      rows.sort((a, b) => Number(b.dataset.selected || "0") - Number(a.dataset.selected || "0"));
+    }
+
+    tbody.innerHTML = "";
+    rows.forEach((row) => tbody.appendChild(row));
+
+    if (visibleSummary) {
+      visibleSummary.textContent = "Showing " + rows.length + " of " + allRows.length + " runs";
+    }
+
+    updateHeaderState();
+  }
+
+  headerButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const key = btn.dataset.key || "";
+      if (!key) return;
+      if (currentKey === key) {
+        currentDir = currentDir === "asc" ? "desc" : "asc";
+      } else {
+        currentKey = key;
+        currentDir = "asc";
+      }
+      render();
+    });
+  });
+
+  [statusFilter, stageFilter, searchFilter, pinSelected].forEach((el) => {
+    if (!el) return;
+    el.addEventListener("input", render);
+    el.addEventListener("change", render);
+  });
+
+  render();
+})();
+</script>
+"""
 
     best_text = ""
     if best:
@@ -1092,23 +1346,53 @@ a{color:var(--accent);text-decoration:none}
 
     <section class="card table-card">
       <div class="table-head"><h2>All runs</h2><span>Top row is the selected best run</span></div>
+      <div class="table-tools">
+        <label>Status
+          <select id="statusFilter">
+            <option value="">All</option>
+            <option value="PASS">PASS</option>
+            <option value="TIMING_FAIL">TIMING_FAIL</option>
+            <option value="SIGNOFF_FAIL">SIGNOFF_FAIL</option>
+            <option value="SIGNOFF_AND_TIMING_FAIL">SIGNOFF_AND_TIMING_FAIL</option>
+            <option value="FLOW_FAIL">FLOW_FAIL</option>
+          </select>
+        </label>
+
+        <label>Stage
+          <select id="stageFilter">
+            <option value="">All</option>
+            {stage_options_html}
+          </select>
+        </label>
+
+        <label>Search
+          <input id="searchFilter" type="search" placeholder="Run, remarks, status...">
+        </label>
+
+        <label class="inline-check">
+          <input type="checkbox" id="pinSelected" checked>
+          Keep selected run on top
+        </label>
+
+        <div class="summary" id="visibleRowsSummary"></div>
+      </div>
       <div class="table-wrap">
         <table class="wide-table">
           <thead>
             <tr>
-              <th>Selected</th>
-              <th>Run</th>
-              <th>Clock (ns)</th>
-              <th>Setup WNS</th>
-              <th>Setup TNS</th>
-              <th>Core area</th>
-              <th>Total power</th>
-              <th>DRC</th>
-              <th>LVS</th>
-              <th>Antenna</th>
-              <th>IR drop</th>
-              <th>Status</th>
-              <th>Remarks</th>
+              <th><button class="sort-btn" data-key="selected" data-type="number" aria-sort="none">Selected <span class="sort-indicator">↕</span></button></th>
+              <th><button class="sort-btn" data-key="run" data-type="text" aria-sort="none">Run <span class="sort-indicator">↕</span></button></th>
+              <th><button class="sort-btn" data-key="clock" data-type="number" aria-sort="none">Clock (ns) <span class="sort-indicator">↕</span></button></th>
+              <th><button class="sort-btn" data-key="setup_wns" data-type="number" aria-sort="none">Setup WNS <span class="sort-indicator">↕</span></button></th>
+              <th><button class="sort-btn" data-key="setup_tns" data-type="number" aria-sort="none">Setup TNS <span class="sort-indicator">↕</span></button></th>
+              <th><button class="sort-btn" data-key="core_area" data-type="number" aria-sort="none">Core area <span class="sort-indicator">↕</span></button></th>
+              <th><button class="sort-btn" data-key="power_total" data-type="number" aria-sort="none">Total power <span class="sort-indicator">↕</span></button></th>
+              <th><button class="sort-btn" data-key="drc" data-type="number" aria-sort="none">DRC <span class="sort-indicator">↕</span></button></th>
+              <th><button class="sort-btn" data-key="lvs" data-type="number" aria-sort="none">LVS <span class="sort-indicator">↕</span></button></th>
+              <th><button class="sort-btn" data-key="antenna" data-type="number" aria-sort="none">Antenna <span class="sort-indicator">↕</span></button></th>
+              <th><button class="sort-btn" data-key="ir_drop" data-type="number" aria-sort="none">IR drop <span class="sort-indicator">↕</span></button></th>
+              <th><button class="sort-btn" data-key="status" data-type="status" aria-sort="none">Status <span class="sort-indicator">↕</span></button></th>
+              <th><button class="sort-btn" data-key="remarks" data-type="text" aria-sort="none">Remarks <span class="sort-indicator">↕</span></button></th>
               <th>GDS</th>
               <th>GDS Viewer</th>
             </tr>
@@ -1120,6 +1404,7 @@ a{color:var(--accent);text-decoration:none}
   </div>
 
   {theme_script}
+  {sort_filter_script}
 </body>
 </html>"""
     (site_root / "index.html").write_text(index_html, encoding="utf-8")

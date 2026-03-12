@@ -105,7 +105,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       resolved_variant: ${{ steps.resolve.outputs.resolved_variant }}
-      start_clock_ns: ${{ steps.start.outputs.start_clock_ns }}
       max_clock_ns: ${{ steps.cap.outputs.max_clock_ns }}
       min_clock_ns: ${{ steps.sweep.outputs.min_clock_ns }}
       coarse_step_ns: ${{ steps.sweep.outputs.coarse_step_ns }}
@@ -185,14 +184,6 @@ jobs:
             echo "openlane_image=${OPENLANE_IMAGE}"
             echo "open_pdks_rev=${OPEN_PDKS_REV}"
           } >> "$GITHUB_OUTPUT"
-
-      - name: Resolve auto start clock from variant.yaml
-        id: start
-        env:
-          RESOLVED_VARIANT: ${{ steps.resolve.outputs.resolved_variant }}
-        run: |
-          START_CLOCK_NS="$(python tools/scripts/read_start_clock.py --variant "${RESOLVED_VARIANT}" --field start_ns)"
-          echo "start_clock_ns=${START_CLOCK_NS}" >> "$GITHUB_OUTPUT"
 
       - name: Resolve auto max clock cap from variant.yaml
         id: cap
@@ -303,13 +294,11 @@ jobs:
       - name: Resolve full-span coarse matrix
         id: coarse
         env:
-          START_CLOCK_NS: ${{ steps.start.outputs.start_clock_ns }}
           MIN_CLOCK_NS: ${{ steps.sweep.outputs.min_clock_ns }}
           MAX_CLOCK_NS: ${{ steps.cap.outputs.max_clock_ns }}
           COARSE_STEP_NS: ${{ steps.sweep.outputs.coarse_step_ns }}
         run: |
           COARSE_MATRIX_JSON="$(python tools/scripts/make_clock_matrix.py \
-            --start-clock-ns "${START_CLOCK_NS}" \
             --min-clock-ns "${MIN_CLOCK_NS}" \
             --max-clock-ns "${MAX_CLOCK_NS}" \
             --step-ns "${COARSE_STEP_NS}")"
@@ -343,7 +332,6 @@ jobs:
             echo "## Plan"
             echo ""
             echo "- Variant: \`${{ steps.resolve.outputs.resolved_variant }}\`"
-            echo "- Baseline clock_ns: \`${{ steps.start.outputs.start_clock_ns }}\`"
             echo "- Coarse sweep: full span from \`${{ steps.sweep.outputs.min_clock_ns }} ns\` to \`${{ steps.cap.outputs.max_clock_ns }} ns\` at \`${{ steps.sweep.outputs.coarse_step_ns }} ns\`"
             echo "- Coarse matrix: \`${{ steps.coarse.outputs.coarse_matrix_json }}\`"
             echo "- Mid refine downward step: \`${{ steps.sweep.outputs.mid_refine_step_ns }} ns\`"

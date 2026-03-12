@@ -5,7 +5,6 @@ top_module: rns_top_crt
 clock:
   port: clk
   mode: auto
-  start_ns: 60
   max_ns_cap: 200
 
 sources:

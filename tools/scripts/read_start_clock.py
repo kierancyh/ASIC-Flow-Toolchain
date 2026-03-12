@@ -35,14 +35,7 @@ def resolve_variant_path(value: str) -> Path:
 def read_clock_field(cfg: Dict[str, Any], field: str) -> Any:
     clock_cfg = cfg.get("clock", {}) or {}
 
-    if field == "start_ns":
-        candidates = [
-            clock_cfg.get("start_ns"),
-            cfg.get("start_clock_ns"),
-            clock_cfg.get("period"),
-            clock_cfg.get("period_ns"),
-        ]
-    elif field == "max_ns_cap":
+    if field == "max_ns_cap":
         candidates = [
             clock_cfg.get("max_ns_cap"),
             clock_cfg.get("max_clock_ns"),
@@ -79,7 +72,7 @@ def emit_numeric(value: Any, source: Path, field: str) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description="Read clock-related fields from variant.yaml")
     ap.add_argument("--variant", required=True)
-    ap.add_argument("--field", default="start_ns", choices=["start_ns", "max_ns_cap"])
+    ap.add_argument("--field", default="max_ns_cap", choices=["max_ns_cap"])
     args = ap.parse_args()
 
     variant_dir = resolve_variant_path(args.variant)
