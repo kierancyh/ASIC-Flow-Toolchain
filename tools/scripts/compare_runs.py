@@ -8,7 +8,7 @@ import json
 import re
 import shutil
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 TT_GDS_VIEWER_URL = "https://gds-viewer.tinytapeout.com/"
 
@@ -28,6 +28,40 @@ def read_csv_row(path: Path) -> Optional[Dict[str, str]]:
     with path.open("r", newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     return rows[0] if rows else None
+
+
+def load_json(path: Path) -> Dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def flatten_scalar_metrics(value: Any, prefix: str = "", out: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    if out is None:
+        out = {}
+
+    if isinstance(value, dict):
+        for key, child in value.items():
+            next_prefix = f"{prefix}__{key}" if prefix else str(key)
+            flatten_scalar_metrics(child, next_prefix, out)
+        return out
+
+    if isinstance(value, list):
+        for idx, child in enumerate(value):
+            if isinstance(child, (dict, list)):
+                continue
+            if child in (None, ""):
+                continue
+            next_prefix = f"{prefix}__{idx}" if prefix else str(idx)
+            out[next_prefix] = child
+        return out
+
+    if prefix and value not in (None, ""):
+        out[prefix] = value
+    return out
 
 
 def signoff_clean(row: Dict[str, str]) -> bool:
@@ -168,6 +202,77 @@ def infer_stage_label(row: Dict[str, str]) -> str:
     return ""
 
 
+def raw_row_key(raw_key: str) -> str:
+    return f"_raw__{raw_key}"
+
+
+def raw_metric_value(row: Dict[str, Any], raw_key: str) -> Any:
+    return row.get(raw_row_key(raw_key), "")
+
+
+def pretty_raw_metric_label(raw_key: str) -> str:
+    pieces = [piece.replace("_", " ").strip() for piece in raw_key.split("__") if piece.strip()]
+    return " / ".join(piece.title() for piece in pieces)
+
+
+def raw_metric_sort_priority(raw_key: str) -> Tuple[int, str]:
+    priorities = [
+        ("clock__", 0),
+        ("timing__", 0),
+        ("power__", 1),
+        ("design__", 2),
+        ("floorplan__", 2),
+        ("place__", 3),
+        ("route__", 4),
+        ("cts__", 5),
+        ("drc__", 6),
+        ("klayout__", 6),
+        ("magic__", 6),
+        ("lvs__", 6),
+        ("antenna__", 6),
+        ("ir__", 6),
+    ]
+    for prefix, rank in priorities:
+        if raw_key.startswith(prefix):
+            return (rank, raw_key)
+    return (99, raw_key)
+
+
+def iter_raw_metrics(row: Dict[str, Any]) -> List[Tuple[str, Any]]:
+    items: List[Tuple[str, Any]] = []
+    for key, value in row.items():
+        if not key.startswith("_raw__"):
+            continue
+        if value in ("", None, "None"):
+            continue
+        raw_key = key[len("_raw__") :]
+        items.append((raw_key, value))
+    items.sort(key=lambda item: raw_metric_sort_priority(item[0]))
+    return items
+
+
+def pick_raw_metric_items(
+    row: Dict[str, Any],
+    prefixes: Tuple[str, ...],
+    consumed: Set[str],
+    *,
+    limit: int = 8,
+    catch_all: bool = False,
+) -> List[Tuple[str, Any]]:
+    selected: List[Tuple[str, Any]] = []
+    for raw_key, value in iter_raw_metrics(row):
+        if raw_key in consumed:
+            continue
+        matches = True if catch_all else any(raw_key.startswith(prefix) for prefix in prefixes)
+        if not matches:
+            continue
+        consumed.add(raw_key)
+        selected.append((pretty_raw_metric_label(raw_key), value))
+        if len(selected) >= limit:
+            break
+    return selected
+
+
 def collect_rows(artifacts_root: Path) -> List[Dict[str, str]]:
     rows: List[Dict[str, str]] = []
     seen: set[Path] = set()
@@ -187,6 +292,10 @@ def collect_rows(artifacts_root: Path) -> List[Dict[str, str]]:
                 else {}
             )
             started = parse_attempt_started(base_dir / "attempt_started.txt")
+
+            raw_metrics = load_json(base_dir / "metrics_raw.json")
+            raw_flat = flatten_scalar_metrics(raw_metrics)
+
             row["_variant"] = str(meta.get("variant", base_dir.parent.name))
             row["_artifact"] = str(meta.get("artifact_name", ""))
             row["_run_dir"] = base_dir.name
@@ -198,9 +307,15 @@ def collect_rows(artifacts_root: Path) -> List[Dict[str, str]]:
             row["_synth_strategy_override"] = str(meta.get("synth_strategy_override", ""))
             row["_attempt_number"] = started.get("attempt", "")
             row["_attempt_started_at"] = started.get("started_at", "")
+            row["_metrics_raw_present"] = "yes" if raw_metrics else "no"
+            row["_raw_metric_count"] = str(len(raw_flat))
             row["status"] = classify_status(row)
             row["selection_reason"] = explain_row(row)
             row["_stage_label"] = infer_stage_label(row)
+
+            for raw_key, raw_value in raw_flat.items():
+                row[raw_row_key(raw_key)] = raw_value
+
             gds = first_gds_path(base_dir)
             rnd = first_render_path(base_dir)
             row["_gds_path"] = str(gds) if gds else ""
@@ -213,12 +328,14 @@ def collect_rows(artifacts_root: Path) -> List[Dict[str, str]]:
 
 
 def write_summary_csv(path: Path, rows: List[Dict[str, str]]) -> None:
-    keys = [
+    base_keys = [
         "_variant",
         "_run_dir",
         "_artifact",
         "_clock_requested",
         "_stage_label",
+        "_metrics_raw_present",
+        "_raw_metric_count",
         "clock_ns",
         "clock_ns_reported",
         "setup_wns_ns",
@@ -235,6 +352,8 @@ def write_summary_csv(path: Path, rows: List[Dict[str, str]]) -> None:
         "power_internal_W",
         "power_switching_W",
         "power_leakage_W",
+        "power_source",
+        "power_fair_sta_rpt",
         "drc_errors",
         "drc_errors_klayout",
         "drc_errors_magic",
@@ -250,6 +369,15 @@ def write_summary_csv(path: Path, rows: List[Dict[str, str]]) -> None:
         "_github_run_id",
         "_synth_strategy_override",
     ]
+    raw_keys = sorted(
+        {
+            key
+            for row in rows
+            for key in row.keys()
+            if key.startswith("_raw__")
+        }
+    )
+    keys = base_keys + raw_keys
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=keys)
         writer.writeheader()
@@ -964,49 +1092,67 @@ a{color:var(--accent);text-decoration:none}
                 "</section>"
             )
 
-        timing_group = metric_group_html(
-            "Timing",
-            [
-                ("Clock requested", f"{row.get('_clock_requested', '')} ns"),
-                ("Clock reported", f"{row.get('clock_ns_reported', '')} ns"),
-                ("Setup WNS", f"{row.get('setup_wns_ns', '')} ns"),
-                ("Setup TNS", f"{row.get('setup_tns_ns', '')} ns"),
-                ("Hold WNS", f"{row.get('hold_wns_ns', '')} ns"),
-                ("Hold TNS", f"{row.get('hold_tns_ns', '')} ns"),
-            ],
+        consumed_raw: Set[str] = set()
+
+        timing_items: List[Tuple[str, Any]] = [
+            ("Clock requested", f"{row.get('_clock_requested', '')} ns"),
+            ("Clock reported", f"{row.get('clock_ns_reported', '')} ns"),
+            ("Setup WNS", f"{row.get('setup_wns_ns', '')} ns"),
+            ("Setup TNS", f"{row.get('setup_tns_ns', '')} ns"),
+            ("Hold WNS", f"{row.get('hold_wns_ns', '')} ns"),
+            ("Hold TNS", f"{row.get('hold_tns_ns', '')} ns"),
+        ]
+        timing_items.extend(pick_raw_metric_items(row, ("clock__", "timing__"), consumed_raw, limit=10))
+
+        physical_items: List[Tuple[str, Any]] = [
+            ("Core area", row.get("core_area_um2", "")),
+            ("Die area", row.get("die_area_um2", "")),
+            ("Instances", row.get("instance_count", "")),
+            ("Utilization", row.get("utilization_pct", "")),
+            ("Wire length", row.get("wire_length_um", "")),
+            ("Vias", row.get("vias_count", "")),
+        ]
+        physical_items.extend(
+            pick_raw_metric_items(row, ("design__", "floorplan__", "place__", "route__", "cts__"), consumed_raw, limit=12)
         )
-        physical_group = metric_group_html(
-            "Physical",
-            [
-                ("Core area", row.get("core_area_um2", "")),
-                ("Die area", row.get("die_area_um2", "")),
-                ("Instances", row.get("instance_count", "")),
-                ("Utilization", row.get("utilization_pct", "")),
-                ("Wire length", row.get("wire_length_um", "")),
-                ("Vias", row.get("vias_count", "")),
-            ],
+
+        power_items: List[Tuple[str, Any]] = [
+            ("Total", row.get("power_total_W", "")),
+            ("Internal", row.get("power_internal_W", "")),
+            ("Switching", row.get("power_switching_W", "")),
+            ("Leakage", row.get("power_leakage_W", "")),
+            ("Source", row.get("power_source", "")),
+            ("FAIR STA rpt", row.get("power_fair_sta_rpt", "")),
+        ]
+        power_items.extend(pick_raw_metric_items(row, ("power__",), consumed_raw, limit=10))
+
+        signoff_items: List[Tuple[str, Any]] = [
+            ("DRC", row.get("drc_errors", "")),
+            ("KLayout DRC", row.get("drc_errors_klayout", "")),
+            ("Magic DRC", row.get("drc_errors_magic", "")),
+            ("LVS", row.get("lvs_errors", "")),
+            ("Antenna", row.get("antenna_violations", "")),
+            ("Worst IR drop", row.get("ir_drop_worst_V", "")),
+        ]
+        signoff_items.extend(
+            pick_raw_metric_items(
+                row,
+                ("drc__", "klayout__", "magic__", "lvs__", "antenna__", "ir__"),
+                consumed_raw,
+                limit=12,
+            )
         )
-        power_group = metric_group_html(
-            "Power (W)",
-            [
-                ("Total", row.get("power_total_W", "")),
-                ("Internal", row.get("power_internal_W", "")),
-                ("Switching", row.get("power_switching_W", "")),
-                ("Leakage", row.get("power_leakage_W", "")),
-                ("Source", row.get("power_source", "")),
-                ("FAIR STA rpt", row.get("power_fair_sta_rpt", "")),
-            ],
-        )
-        signoff_group = metric_group_html(
-            "Signoff",
-            [
-                ("DRC", row.get("drc_errors", "")),
-                ("KLayout DRC", row.get("drc_errors_klayout", "")),
-                ("Magic DRC", row.get("drc_errors_magic", "")),
-                ("LVS", row.get("lvs_errors", "")),
-                ("Antenna", row.get("antenna_violations", "")),
-                ("Worst IR drop", row.get("ir_drop_worst_V", "")),
-            ],
+
+        additional_raw_items = pick_raw_metric_items(row, tuple(), consumed_raw, limit=24, catch_all=True)
+
+        timing_group = metric_group_html("Timing", timing_items)
+        physical_group = metric_group_html("Physical", physical_items)
+        power_group = metric_group_html("Power (W)", power_items)
+        signoff_group = metric_group_html("Signoff", signoff_items)
+        raw_group = (
+            metric_group_html("Additional raw metrics", additional_raw_items)
+            if additional_raw_items
+            else ""
         )
 
         meta_rows = [
@@ -1018,6 +1164,8 @@ a{color:var(--accent);text-decoration:none}
             ("GitHub run ID", row.get("_github_run_id")),
             ("Synthesis override", row.get("_synth_strategy_override")),
             ("OpenLane run copied", row.get("_openlane_run_present")),
+            ("metrics_raw.json present", row.get("_metrics_raw_present")),
+            ("Raw metric count", row.get("_raw_metric_count")),
             ("Status", row.get("status")),
             ("Remarks", row.get("selection_reason")),
         ]
@@ -1066,6 +1214,7 @@ a{color:var(--accent);text-decoration:none}
           {physical_group}
           {power_group}
           {signoff_group}
+          {raw_group}
         </div>
       </section>
 
