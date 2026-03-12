@@ -325,8 +325,8 @@ jobs:
         run: |
           to_label() {
             case "${1:-}" in
-              true|TRUE|True) echo "enabled" ;;
-              false|FALSE|False) echo "disabled" ;;
+              true|TRUE|True) echo "Enabled" ;;
+              false|FALSE|False) echo "Disabled" ;;
               *) echo "${1:-}" ;;
             esac
           }
