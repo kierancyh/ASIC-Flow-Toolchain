@@ -124,9 +124,9 @@ jobs:
       summary_synth_strategy: ${{ steps.summary_synth.outputs.summary_synth_strategy }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -380,7 +380,7 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install volare pyyaml
       - name: Restore PDK cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ github.workspace }}/.volare
           key: ${{ runner.os }}-sky130-volare-${{ needs.plan.outputs.open_pdks_rev }}
@@ -428,7 +428,7 @@ jobs:
             --out-root "ci_out/${VARIANT}"
       - name: Upload coarse artifacts
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: coarse-${{ needs.plan.outputs.resolved_variant }}-${{ matrix.clock_ns }}ns
           path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
@@ -447,8 +447,8 @@ jobs:
       matrix_json: ${{ steps.select.outputs.matrix_json }}
       reason: ${{ steps.select.outputs.reason }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
       - name: Download accumulated artifacts
@@ -486,8 +486,8 @@ jobs:
       matrix:
         clock_ns: ${{ fromJson(needs.select-coarse-bracket.outputs.matrix_json) }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
       - name: Install runtime dependencies
@@ -496,7 +496,7 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install volare pyyaml
       - name: Restore PDK cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ github.workspace }}/.volare
           key: ${{ runner.os }}-sky130-volare-${{ needs.plan.outputs.open_pdks_rev }}
@@ -544,7 +544,7 @@ jobs:
             --out-root "ci_out/${VARIANT}"
       - name: Upload mid refine artifacts
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: mid-${{ needs.plan.outputs.resolved_variant }}-${{ matrix.clock_ns }}ns
           path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
@@ -563,8 +563,8 @@ jobs:
       matrix_json: ${{ steps.select.outputs.matrix_json }}
       reason: ${{ steps.select.outputs.reason }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
       - name: Download accumulated artifacts
@@ -602,8 +602,8 @@ jobs:
       matrix:
         clock_ns: ${{ fromJson(needs.select-mid-bracket.outputs.matrix_json) }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
       - name: Install runtime dependencies
@@ -612,7 +612,7 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install volare pyyaml
       - name: Restore PDK cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ github.workspace }}/.volare
           key: ${{ runner.os }}-sky130-volare-${{ needs.plan.outputs.open_pdks_rev }}
@@ -660,7 +660,7 @@ jobs:
             --out-root "ci_out/${VARIANT}"
       - name: Upload refine-1 artifacts
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: refine1-${{ needs.plan.outputs.resolved_variant }}-${{ matrix.clock_ns }}ns
           path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
@@ -679,12 +679,12 @@ jobs:
       matrix_json: ${{ steps.select.outputs.matrix_json }}
       reason: ${{ steps.select.outputs.reason }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
       - name: Download accumulated artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: downloaded_artifacts
       - name: Select refine-2 bracket
@@ -718,8 +718,8 @@ jobs:
       matrix:
         clock_ns: ${{ fromJson(needs.select-refine-1.outputs.matrix_json) }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
       - name: Install runtime dependencies
@@ -728,7 +728,7 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install volare pyyaml
       - name: Restore PDK cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ github.workspace }}/.volare
           key: ${{ runner.os }}-sky130-volare-${{ needs.plan.outputs.open_pdks_rev }}
@@ -776,7 +776,7 @@ jobs:
             --out-root "ci_out/${VARIANT}"
       - name: Upload refine-2 artifacts
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: refine2-${{ needs.plan.outputs.resolved_variant }}-${{ matrix.clock_ns }}ns
           path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
@@ -795,12 +795,12 @@ jobs:
       matrix_json: ${{ steps.select.outputs.matrix_json }}
       reason: ${{ steps.select.outputs.reason }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
       - name: Download accumulated artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: downloaded_artifacts
       - name: Select refine-3 bracket
@@ -834,8 +834,8 @@ jobs:
       matrix:
         clock_ns: ${{ fromJson(needs.select-refine-2.outputs.matrix_json) }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
       - name: Install runtime dependencies
@@ -844,7 +844,7 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install volare pyyaml
       - name: Restore PDK cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ github.workspace }}/.volare
           key: ${{ runner.os }}-sky130-volare-${{ needs.plan.outputs.open_pdks_rev }}
@@ -892,7 +892,7 @@ jobs:
             --out-root "ci_out/${VARIANT}"
       - name: Upload refine-3 artifacts
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: refine3-${{ needs.plan.outputs.resolved_variant }}-${{ matrix.clock_ns }}ns
           path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
@@ -915,12 +915,12 @@ jobs:
     if: ${{ always() && needs.coarse-sweep.result != 'skipped' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
       - name: Download all upstream artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: downloaded_artifacts
       - name: Show downloaded structure
@@ -964,7 +964,7 @@ jobs:
           cat _compare_summary.md >> "$GITHUB_STEP_SUMMARY"
       - name: Upload compare summary
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: compare-summary
           path: |
@@ -975,7 +975,7 @@ jobs:
           include-hidden-files: true
       - name: Upload best-layout bundle
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: best-layout-bundle
           path: best-layout-bundle/
@@ -983,7 +983,7 @@ jobs:
           include-hidden-files: true
       - name: Upload run explorer site
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: run-explorer-site
           path: _site/
@@ -1000,7 +1000,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Configure Pages
-        uses: actions/configure-pages@v6
+        uses: actions/configure-pages@v5
       - name: Download run explorer artifact
         uses: actions/download-artifact@v5
         with:
@@ -1012,7 +1012,7 @@ jobs:
           path: _site
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@v4
       - name: Workflow Summary
         run: |
           {
