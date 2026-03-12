@@ -351,7 +351,7 @@ jobs:
             echo "- Refine stage 2: \`${{ steps.sweep.outputs.refine2_step_ns }} ns\`"
             echo "- Refine stage 3: \`${{ steps.sweep.outputs.refine3_step_ns }} ns\`"
             echo "- Tolerance: \`${{ steps.sweep.outputs.tolerance_ns }} ns\`"
-            echo "- Search policy: full coarse span to clock cap, then fastest PASS / highest FAIL bracket, then downward matrix refinement at 5 ns, 1 ns, 0.5 ns, and 0.125 ns"
+            echo "- Search policy: Full coarse span to clock cap -> Fastest PASS/Slowest FAIL bracket -> Downward matrix refinement"
             echo "- Synthesis strategy: \`${{ steps.summary_synth.outputs.summary_synth_strategy }}\`"
             echo "- Antenna repair: \`${{ steps.summary_knobs.outputs.antenna_repair }}\`"
             echo "- Heuristic diode insertion: \`${{ steps.summary_knobs.outputs.heuristic_diode_insertion }}\`"
@@ -370,8 +370,8 @@ jobs:
       matrix:
         clock_ns: ${{ fromJson(needs.plan.outputs.coarse_matrix_json) }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
       - name: Install runtime dependencies
@@ -428,7 +428,7 @@ jobs:
             --out-root "ci_out/${VARIANT}"
       - name: Upload coarse artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: coarse-${{ needs.plan.outputs.resolved_variant }}-${{ matrix.clock_ns }}ns
           path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
@@ -452,7 +452,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Download accumulated artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: downloaded_artifacts
       - name: Select coarse bracket
@@ -544,7 +544,7 @@ jobs:
             --out-root "ci_out/${VARIANT}"
       - name: Upload mid refine artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: mid-${{ needs.plan.outputs.resolved_variant }}-${{ matrix.clock_ns }}ns
           path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
@@ -568,7 +568,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Download accumulated artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: downloaded_artifacts
       - name: Select mid bracket
@@ -660,7 +660,7 @@ jobs:
             --out-root "ci_out/${VARIANT}"
       - name: Upload refine-1 artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: refine1-${{ needs.plan.outputs.resolved_variant }}-${{ matrix.clock_ns }}ns
           path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
@@ -776,7 +776,7 @@ jobs:
             --out-root "ci_out/${VARIANT}"
       - name: Upload refine-2 artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: refine2-${{ needs.plan.outputs.resolved_variant }}-${{ matrix.clock_ns }}ns
           path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
@@ -892,7 +892,7 @@ jobs:
             --out-root "ci_out/${VARIANT}"
       - name: Upload refine-3 artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: refine3-${{ needs.plan.outputs.resolved_variant }}-${{ matrix.clock_ns }}ns
           path: ci_out/${{ needs.plan.outputs.resolved_variant }}/
@@ -964,7 +964,7 @@ jobs:
           cat _compare_summary.md >> "$GITHUB_STEP_SUMMARY"
       - name: Upload compare summary
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: compare-summary
           path: |
@@ -975,7 +975,7 @@ jobs:
           include-hidden-files: true
       - name: Upload best-layout bundle
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: best-layout-bundle
           path: best-layout-bundle/
@@ -983,7 +983,7 @@ jobs:
           include-hidden-files: true
       - name: Upload run explorer site
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: run-explorer-site
           path: _site/
@@ -1000,9 +1000,9 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Configure Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
       - name: Download run explorer artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: run-explorer-site
           path: _site
@@ -1012,7 +1012,7 @@ jobs:
           path: _site
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
       - name: Workflow Summary
         run: |
           {
