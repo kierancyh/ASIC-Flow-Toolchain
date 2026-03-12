@@ -452,7 +452,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Download accumulated artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           path: downloaded_artifacts
       - name: Select coarse bracket
@@ -568,7 +568,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Download accumulated artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           path: downloaded_artifacts
       - name: Select mid bracket
@@ -684,7 +684,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Download accumulated artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           path: downloaded_artifacts
       - name: Select refine-2 bracket
@@ -800,7 +800,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Download accumulated artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           path: downloaded_artifacts
       - name: Select refine-3 bracket
@@ -920,7 +920,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Download all upstream artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           path: downloaded_artifacts
       - name: Show downloaded structure
@@ -1002,7 +1002,7 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Download run explorer artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: run-explorer-site
           path: _site
