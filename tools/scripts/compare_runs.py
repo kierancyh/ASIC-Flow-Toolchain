@@ -675,16 +675,79 @@ def sortable_text_attr(v: Any) -> str:
     return str(v or "").strip()
 
 
+def sanitize_site_component(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", str(value or "").strip())
+
+
+def normalize_site_subdir(site_subdir: str) -> str:
+    raw = str(site_subdir or "").strip().replace("\\", "/")
+    parts = [part for part in raw.split("/") if part not in {"", ".", ".."}]
+    return "/".join(parts)
+
+
+def write_redirect_page(path: Path, target_href: str, title: str, description: str) -> None:
+    safe_target = html.escape(target_href, quote=True)
+    safe_title = html.escape(title)
+    safe_description = html.escape(description)
+    content = f"""<!doctype html>
+<html lang=\"en\">
+<head>
+  <meta charset=\"utf-8\">
+  <meta http-equiv=\"refresh\" content=\"0; url={safe_target}\">
+  <title>{safe_title}</title>
+  <style>
+    body{{font:16px/1.6 Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;background:#f4ecdf;color:#2f2418;display:grid;min-height:100vh;place-items:center;padding:24px}}
+    .card{{max-width:720px;background:rgba(255,248,238,.94);border:1px solid rgba(116,92,62,.22);border-radius:18px;padding:24px;box-shadow:0 18px 45px rgba(110,84,53,.12)}}
+    a{{color:#8b5e3c;text-decoration:none;font-weight:700}}
+  </style>
+</head>
+<body>
+  <div class=\"card\">
+    <h1>{safe_title}</h1>
+    <p>{safe_description}</p>
+    <p><a href=\"{safe_target}\">Open the explorer snapshot</a></p>
+  </div>
+</body>
+</html>"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
 def build_site(
     site_root: Path,
     rows: List[Dict[str, str]],
     explorer_settings: Optional[Dict[str, str]] = None,
+    *,
+    repo_slug: str = "",
+    run_id: str = "",
+    site_subdir: str = "",
 ) -> None:
     site_root.mkdir(parents=True, exist_ok=True)
-    runs_root = site_root / "runs"
-    runs_root.mkdir(parents=True, exist_ok=True)
     ordered = sorted(rows, key=best_sort_key)
     explorer_settings = explorer_settings or {}
+
+    normalized_site_subdir = normalize_site_subdir(site_subdir)
+    snapshot_root = site_root / normalized_site_subdir if normalized_site_subdir else site_root
+    snapshot_root.mkdir(parents=True, exist_ok=True)
+    runs_root = snapshot_root / "runs"
+    runs_root.mkdir(parents=True, exist_ok=True)
+
+    run_id_label = str(run_id or "").strip()
+    repo_slug_label = str(repo_slug or "").strip()
+    snapshot_label = run_id_label if run_id_label else "current"
+    snapshot_prefix = f"/{normalized_site_subdir}" if normalized_site_subdir else "/"
+    snapshot_description = (
+        f"Static explorer snapshot for GitHub run {run_id_label}." if run_id_label else "Static explorer snapshot."
+    )
+
+    if normalized_site_subdir:
+        write_redirect_page(
+            site_root / "index.html",
+            f"{normalized_site_subdir}/index.html",
+            "ASIC Flow Run Explorer",
+            snapshot_description,
+        )
+    (site_root / ".nojekyll").write_text("\n", encoding="utf-8")
 
     css = """
 :root{
@@ -1206,6 +1269,8 @@ a{color:var(--accent);text-decoration:none}
 
         meta_rows = [
             ("Variant", row.get("_variant")),
+            ("Snapshot run ID", run_id_label),
+            ("Repository", repo_slug_label),
             ("Run folder", row.get("_run_dir")),
             ("Artifact label", row.get("_artifact")),
             ("Stage label", row.get("_stage_label")),
@@ -1240,6 +1305,7 @@ a{color:var(--accent);text-decoration:none}
         <div class="hero-copy">
           <h1>{title}</h1>
           <p>Enriched per-run detail page with timing, physical, power, signoff, and download links.</p>
+          <p><strong>Snapshot:</strong> {html.escape(snapshot_label)} · <strong>Path:</strong> {html.escape(snapshot_prefix + '/index.html' if snapshot_prefix != '/' else '/index.html')}</p>
         </div>
         {theme_widget}
       </div>
@@ -1504,6 +1570,7 @@ a{color:var(--accent);text-decoration:none}
         <div class="hero-copy">
           <h1>ASIC Flow Run Explorer</h1>
           <p>Published summary of all collected runs, richer per-run metrics, and direct access to downloadable layout data.</p>
+          <p><strong>Snapshot run ID:</strong> {html.escape(snapshot_label)} · <strong>Repository:</strong> {html.escape(repo_slug_label or '—')}</p>
           <ul class="settings-list">{settings_html}</ul>
         </div>
         {theme_widget}
@@ -1609,7 +1676,16 @@ a{color:var(--accent);text-decoration:none}
   {sort_filter_script}
 </body>
 </html>"""
-    (site_root / "index.html").write_text(index_html, encoding="utf-8")
+    (snapshot_root / "index.html").write_text(index_html, encoding="utf-8")
+
+    site_manifest = {
+        "repo_slug": repo_slug_label,
+        "run_id": run_id_label,
+        "site_subdir": normalized_site_subdir,
+        "entrypoint": f"{normalized_site_subdir + '/' if normalized_site_subdir else ''}index.html",
+        "snapshot_root": str(snapshot_root.relative_to(site_root)) if snapshot_root != site_root else ".",
+    }
+    (site_root / "site_manifest.json").write_text(json.dumps(site_manifest, indent=2), encoding="utf-8")
 
 
 def main() -> None:
@@ -1620,6 +1696,7 @@ def main() -> None:
     ap.add_argument("--best-json", type=Path, required=True)
     ap.add_argument("--best-bundle-dir", type=Path, default=Path("best-layout-bundle"))
     ap.add_argument("--site-dir", type=Path, default=Path("_site"))
+    ap.add_argument("--site-subdir", default="")
     ap.add_argument("--repo-slug", default="")
     ap.add_argument("--run-id", default="")
     ap.add_argument("--summary-synth-strategy", default="")
@@ -1634,6 +1711,10 @@ def main() -> None:
     write_summary_md(args.summary_md, rows)
     best = write_best_json(args.best_json, rows)
     package_best_bundle(args.best_bundle_dir, best)
+    requested_site_subdir = normalize_site_subdir(args.site_subdir)
+    if not requested_site_subdir and str(args.run_id or "").strip():
+        requested_site_subdir = normalize_site_subdir(f"runs/{sanitize_site_component(args.run_id)}")
+
     build_site(
         args.site_dir,
         rows,
@@ -1644,6 +1725,9 @@ def main() -> None:
             "post_grt_design_repair": args.summary_post_grt_design_repair,
             "post_grt_resizer_timing": args.summary_post_grt_resizer_timing,
         },
+        repo_slug=args.repo_slug,
+        run_id=args.run_id,
+        site_subdir=requested_site_subdir,
     )
 
 
