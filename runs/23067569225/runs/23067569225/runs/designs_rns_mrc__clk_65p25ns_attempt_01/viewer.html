@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Layout Viewer</title>
+<style>
+body { font-family: system-ui, sans-serif; margin: 24px; max-width: 1200px; }
+h1, h2, h3 { margin-bottom: 0.4em; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
+.card { border: 1px solid #ddd; border-radius: 12px; padding: 14px; background: #fafafa; }
+img { width: 100%; height: auto; border: 1px solid #ccc; border-radius: 8px; }
+code { background: #f4f4f4; padding: 2px 6px; border-radius: 6px; }
+a { text-decoration: none; }
+a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<h1>Layout Viewer</h1>
+<p>This page shows static PNG previews of the generated GDS layout.</p>
+<div class='card'>
+<h2>How to use</h2>
+<ol>
+<li>Extract the entire artifact zip first.</li>
+<li>Open <code>viewer.html</code> from the extracted folder.</li>
+<li>For full layout inspection, open the GDS in KLayout.</li>
+</ol>
+</div>
+<p>No GDS file was copied into this artifact.</p>
+<p><strong>No PNG renders were generated.</strong></p>
+<p>This usually means KLayout rendering failed or no GDS was found during the render step.</p>
+</body>
+</html>
