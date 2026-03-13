@@ -11,7 +11,7 @@ This repository is intended to be a:
 - **Variant-driven ASIC research workflow**
 - **Repeatable GitHub Actions pipeline** for OpenLane2 / LibreLane on Sky130
 - **Run-comparison framework** that keeps all tested timing points visible
-- a **documentation-friendly evidence generator** for metrics, artifacts, failure diagnostics, and GitHub Pages summaries
+- **Documentation-friendly evidence generator** for metrics, artifacts, failure diagnostics, and GitHub Pages summaries
 
 ---
 
@@ -406,6 +406,76 @@ sources:
 ```
 
 This should include all required Verilog files for the top module.
+
+---
+
+## How to: Run the Workflow
+
+This repository supports two normal ways to run the flow:
+
+- **Automatic run on push**
+- **Manual run from GitHub Actions**
+
+In both cases, the workflow:
+- selects a design variant
+- runs the staged clock search
+- uploads per-run artifacts
+- compares all collected runs
+- publishes the Run Explorer if the compare stage succeeds
+
+### Option 1: Automatic run on push
+
+This is the normal way to use the repo.
+
+After you:
+1. create the new design under `designs/<variant_name>/`
+2. fill in `variant.yaml`
+3. register it in `manifest.yaml`
+4. commit and push to `main`
+
+the workflow starts automatically.
+
+Use this when:
+- you want the repo to use its normal default behavior
+- you are testing the currently enabled manifest design
+- you do not need to override any workflow inputs manually
+
+### Option 2: Manual run from GitHub Actions
+
+Use manual dispatch when you want to:
+- rerun the flow without making a new commit
+- test a specific registered variant
+- change the timing search step sizes for an experiment
+- temporarily override synthesis or repair options
+
+To run it manually:
+
+1. Open the repository on GitHub
+2. Click **Actions**
+3. Select **ASIC Flow**
+4. Click **Run workflow**
+5. Choose the branch, usually `main`
+6. Fill in any inputs you want to override
+7. Click **Run workflow**
+
+### Typical manual test settings
+
+For a normal first test, use:
+
+```text
+variant: designs_my_alu
+min_clock_ns: 0
+initial_step_ns: 20
+mid_refine_step_ns: 5.0
+refine1_step_ns: 1.0
+refine2_step_ns: 0.5
+refine3_step_ns: 0.125
+tolerance_ns: 0.125
+synth_strategy: leave blank
+run_antenna_repair: true
+run_heuristic_diode_insertion: true
+run_post_grt_design_repair: true
+run_post_grt_resizer_timing: false
 
 ---
 
