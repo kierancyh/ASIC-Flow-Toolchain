@@ -136,7 +136,7 @@ After the final refinement stage, the workflow:
 
 ---
 
-## Current workflow stages
+## Workflow stages
 
 ```text
 plan
