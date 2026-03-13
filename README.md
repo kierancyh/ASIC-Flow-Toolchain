@@ -258,7 +258,7 @@ This helps explain how the next refinement matrix was chosen.
 
 To test a new design, add a new variant directory under `designs/`.
 
-### Step 1: create a variant folder
+### Step 1: Create a Variant Folder
 
 Example:
 
@@ -271,11 +271,11 @@ designs/my_alu/
    └─ submodule_b.v
 ```
 
-### Step 2: place all Verilog sources under `src/`
+### Step 2: Place all Verilog Sources under `src/`
 
 Use a clean source tree and include all RTL files needed by the selected top module.
 
-### Step 3: write `variant.yaml`
+### Step 3: Write `variant.yaml`
 
 An example of a filled template is:
 
@@ -305,7 +305,7 @@ fp:
   core_util: 10
 ```
 
-### Step 4: register it in `manifest.yaml`
+### Step 4: Register it in `manifest.yaml`
 
 Example:
 
@@ -322,13 +322,13 @@ experiments:
 
 If more than one experiment is listed, only enable the one you currently want as the default, unless you are intentionally changing manifest selection behavior.
 
-### Step 5: commit and push
+### Step 5: Commit and Push
 
 Pushing to `main` triggers the workflow. You can also use **workflow_dispatch** from GitHub Actions and optionally provide a specific variant plus timing-step overrides.
 
 ---
 
-## How to fill in `variant.yaml`
+## How to: Fill in `variant.yaml`
 
 This section is the main user guide for preparing a design variant.
 
@@ -557,8 +557,8 @@ Common timing fields include:
 - Hold WNS / TNS
 
 Note:
-**Non-negative setup WNS** - Generally what you want for a timing-clean result
-**Large negative WNS or TNS** - Indicates the chosen clock is too aggressive
+- **Non-negative setup WNS** - Generally what you want for a timing-clean result
+- **Large negative WNS or TNS** - Indicates the chosen clock is too aggressive
 
 ### Physical Metrics
 Typical fields include:
