@@ -1,0 +1,16 @@
+name: rns_crt
+pdk: sky130A
+top_module: rns_top_mrc
+
+clock:
+  port: clk
+  mode: auto
+  max_ns_cap: 200
+
+sources:
+  - src/**/*.v
+
+ll_policy:
+  sdc: ../_shared/ll_policy/constraints.sdc
+  power_fair_tcl: ../_shared/ll_policy/power_fair.tcl
+  power_activity_tcl: ../_shared/ll_policy/power_activity.tcl
