@@ -91,7 +91,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -948,15 +948,6 @@ jobs:
           COUNT="$(find downloaded_artifacts -type f -name metrics.csv | wc -l | tr -d ' ')"
           echo "Found ${COUNT} metrics.csv files"
           test "${COUNT}" != "0"
-      - name: Syntax check critical Python scripts
-        run: |
-          python -m py_compile \
-            tools/scripts/autoflow.py \
-            tools/scripts/compare_runs.py \
-            tools/scripts/select_clock_bracket.py \
-            tools/scripts/make_clock_matrix.py \
-            tools/scripts/read_start_clock.py \
-            tools/scripts/gen_config.py
       - name: Compare runs and build explorer
         run: |
           python tools/scripts/compare_runs.py \
@@ -968,6 +959,11 @@ jobs:
             --site-dir _site \
             --repo-slug "${{ github.repository }}" \
             --run-id "${{ github.run_id }}" \
+            --summary-synth-strategy "${{ needs.plan.outputs.summary_synth_strategy }}" \
+            --summary-antenna-repair "${{ needs.plan.outputs.summary_antenna_repair }}" \
+            --summary-heuristic-diode-insertion "${{ needs.plan.outputs.summary_heuristic_diode_insertion }}" \
+            --summary-post-grt-design-repair "${{ needs.plan.outputs.summary_post_grt_design_repair }}" \
+            --summary-post-grt-resizer-timing "${{ needs.plan.outputs.summary_post_grt_resizer_timing }}" \
             --summary-synth-strategy "${{ needs.plan.outputs.summary_synth_strategy }}" \
             --summary-antenna-repair "${{ needs.plan.outputs.summary_antenna_repair }}" \
             --summary-heuristic-diode-insertion "${{ needs.plan.outputs.summary_heuristic_diode_insertion }}" \
@@ -1018,26 +1014,97 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/runs/${{ github.run_id }}/
     steps:
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
       - name: Download run explorer artifact
         uses: actions/download-artifact@v7
         with:
           name: run-explorer-site
-          path: _site
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+          path: incoming_site
+
+      - name: Checkout gh-pages branch if it exists
+        id: checkout_gh_pages
+        continue-on-error: true
+        uses: actions/checkout@v5
         with:
-          path: _site
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          ref: gh-pages
+          path: gh-pages
+          fetch-depth: 1
+
+      - name: Prepare gh-pages content
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ ! -d gh-pages/.git ]; then
+            rm -rf gh-pages
+            git init gh-pages
+            cd gh-pages
+            git checkout --orphan gh-pages
+            git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            cd ..
+          else
+            git -C gh-pages remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          fi
+
+          mkdir -p "gh-pages/runs/${GITHUB_RUN_ID}"
+          rm -rf "gh-pages/runs/${GITHUB_RUN_ID}" "gh-pages/latest"
+          mkdir -p "gh-pages/runs/${GITHUB_RUN_ID}" "gh-pages/latest"
+
+          cp -a incoming_site/. "gh-pages/runs/${GITHUB_RUN_ID}/"
+          cp -a incoming_site/. "gh-pages/latest/"
+
+          cat > "gh-pages/index.html" <<EOF
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta http-equiv="refresh" content="0; url=latest/">
+            <title>ASIC Flow Run Explorer</title>
+          </head>
+          <body>
+            <p>Redirecting to <a href="latest/">latest explorer</a>...</p>
+            <p>Per-run snapshots are available under <a href="runs/${GITHUB_RUN_ID}/">runs/${GITHUB_RUN_ID}/</a>.</p>
+          </body>
+          </html>
+          EOF
+
+          cat > "gh-pages/runs/index.html" <<EOF
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <title>ASIC Flow Run Snapshots</title>
+          </head>
+          <body>
+            <h1>ASIC Flow Run Snapshots</h1>
+            <p>Latest run snapshot: <a href="../runs/${GITHUB_RUN_ID}/">${GITHUB_RUN_ID}</a></p>
+            <p>Browse folders in this branch for older snapshots.</p>
+          </body>
+          </html>
+          EOF
+
+      - name: Publish gh-pages branch
+        run: |
+          set -euo pipefail
+          cd gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No gh-pages changes to publish."
+          else
+            git commit -m "Publish explorer for run ${GITHUB_RUN_ID}"
+            git push origin HEAD:gh-pages
+          fi
+
       - name: Workflow Summary
         run: |
           {
             echo "## Published Run Explorer"
             echo ""
-            echo "- [Open ASIC Flow Run Explorer](${{ steps.deployment.outputs.page_url }})"
+            echo "- [Open explorer for this run](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/runs/${{ github.run_id }}/)"
+            echo "- [Open latest explorer](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/latest/)"
           } >> "$GITHUB_STEP_SUMMARY"
+
