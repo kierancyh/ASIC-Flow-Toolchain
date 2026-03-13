@@ -1,4 +1,4 @@
-name: rns_crt
+name: rns_mrc
 pdk: sky130A
 top_module: rns_top_mrc
 
