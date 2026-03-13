@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>designs_rns_crt — clk_10p125ns_attempt_01</title>
+  <style>
+:root{
+  color-scheme:light dark;
+  --bg:#f4ecdf;
+  --bg-grad-1:#f8f1e7;
+  --bg-grad-2:#efe4d3;
+  --panel:rgba(255,250,243,.82);
+  --panel-strong:rgba(255,248,238,.94);
+  --panel-soft:rgba(255,255,255,.46);
+  --border:rgba(116,92,62,.16);
+  --border-strong:rgba(116,92,62,.22);
+  --text:#2f2418;
+  --muted:#716250;
+  --accent:#8b5e3c;
+  --accent-2:#b6845e;
+  --shadow:0 18px 45px rgba(110,84,53,.12);
+  --pass-bg:rgba(73,143,96,.14);
+  --pass-fg:#285a38;
+  --timing-bg:rgba(190,143,45,.16);
+  --timing-fg:#7d5b13;
+  --signoff-bg:rgba(180,83,72,.14);
+  --signoff-fg:#7b2f28;
+  --mixed-bg:rgba(135,96,166,.14);
+  --mixed-fg:#5b3f77;
+  --flow-bg:rgba(120,115,108,.14);
+  --flow-fg:#504a44;
+  --radius-xl:28px;
+  --radius-lg:20px;
+  --radius-md:14px
+}
+body{
+  margin:0;
+  background:
+    radial-gradient(circle at top left,var(--bg-grad-1)0%,transparent 36%),
+    radial-gradient(circle at top right,var(--bg-grad-2)0%,transparent 28%),
+    linear-gradient(180deg,var(--bg-grad-1)0%,var(--bg)100%);
+  color:var(--text);
+  font:15px/1.6 Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif
+}
+a{color:var(--accent);text-decoration:none}
+.wrap{max-width:1520px;margin:0 auto;padding:28px 20px 40px}
+.hero{
+  background:var(--panel-strong);
+  border:1px solid var(--border-strong);
+  border-radius:var(--radius-xl);
+  padding:30px;
+  box-shadow:var(--shadow);
+  margin-bottom:22px
+}
+.hero-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.hero-copy{max-width:980px}
+.hero-copy p{margin:0}
+.settings-list{
+  margin:12px 0 0;
+  padding:0;
+  list-style:none;
+  display:grid;
+  gap:6px;
+  color:var(--muted);
+  font-size:14px
+}
+.settings-list strong{color:var(--text)}
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:18px}
+.card{
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:var(--radius-lg);
+  padding:22px;
+  box-shadow:var(--shadow)
+}
+.span-12{grid-column:span 12}
+.span-7{grid-column:span 7}
+.span-5{grid-column:span 5}
+.span-4{grid-column:span 4}
+.span-3{grid-column:span 3}
+.kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.stat{
+  background:var(--panel-soft);
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+  padding:16px
+}
+.stat .label{color:var(--muted);font-size:12px;text-transform:uppercase}
+.stat .value{font-size:28px;font-weight:700}
+.metrics-strip{display:grid;grid-template-columns:1fr;gap:14px}
+.metric-group{
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:var(--radius-lg);
+  padding:0;
+  overflow:hidden
+}
+.metric-group h3{margin:0;font-size:15px}
+.table-card{padding:0;overflow:hidden}
+.table-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:18px 20px;
+  border-bottom:1px solid var(--border)
+}
+.table-wrap{overflow:auto}
+.kv-wrap{overflow:hidden}
+
+.wide-table{
+  width:100%;
+  border-collapse:collapse;
+  min-width:1180px
+}
+.wide-table th,
+.wide-table td{
+  padding:14px 16px;
+  border-bottom:1px solid var(--border)
+}
+.wide-table th{
+  background:rgba(255,248,240,.92);
+  text-align:left;
+  font-size:13px;
+  white-space:nowrap
+}
+
+.kv-table{
+  width:100%;
+  border-collapse:collapse;
+  table-layout:fixed;
+  min-width:0
+}
+.kv-table col.kv-key{width:38%}
+.kv-table col.kv-value{width:62%}
+.kv-table th,
+.kv-table td{
+  padding:12px 16px;
+  border-bottom:1px solid var(--border);
+  vertical-align:top
+}
+.kv-table th{
+  background:rgba(255,248,240,.92);
+  text-align:left;
+  font-size:13px
+}
+.kv-table td:first-child,
+.kv-table th:first-child{
+  white-space:nowrap
+}
+.kv-table td:last-child,
+.kv-table th:last-child{
+  word-break:break-word
+}
+
+.table-tools{
+  display:flex;
+  gap:12px;
+  flex-wrap:wrap;
+  align-items:end;
+  padding:16px 20px 0
+}
+.table-tools label{
+  display:grid;
+  gap:6px;
+  color:var(--muted);
+  font-size:12px;
+  font-weight:700;
+  text-transform:uppercase
+}
+.table-tools select,
+.table-tools input[type="search"]{
+  min-width:180px;
+  padding:10px 12px;
+  border-radius:10px;
+  border:1px solid var(--border-strong);
+  background:var(--panel-soft);
+  color:var(--text);
+  font:500 13px/1.2 Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif
+}
+.table-tools .inline-check{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:13px;
+  font-weight:600;
+  text-transform:none;
+  color:var(--text);
+  padding-bottom:2px
+}
+.table-tools .summary{
+  margin-left:auto;
+  font-size:13px;
+  color:var(--muted);
+  padding-bottom:4px
+}
+.sort-btn{
+  all:unset;
+  cursor:pointer;
+  font-weight:700;
+  color:var(--text);
+  display:inline-flex;
+  align-items:center;
+  gap:6px
+}
+.sort-btn:hover{
+  color:var(--accent)
+}
+.sort-btn.active{
+  color:var(--accent)
+}
+.sort-indicator{
+  font-size:11px;
+  color:var(--muted)
+}
+
+.badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:112px;
+  padding:6px 10px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:700
+}
+.badge.pass{background:var(--pass-bg);color:var(--pass-fg)}
+.badge.timing{background:var(--timing-bg);color:var(--timing-fg)}
+.badge.signoff{background:var(--signoff-bg);color:var(--signoff-fg)}
+.badge.mixed{background:var(--mixed-bg);color:var(--mixed-fg)}
+.badge.flow{background:var(--flow-bg);color:var(--flow-fg)}
+.btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:8px 12px;
+  border-radius:10px;
+  border:1px solid rgba(139,94,60,.20);
+  background:rgba(139,94,60,.08);
+  color:var(--text);
+  font-weight:600;
+  font-size:13px
+}
+.btn.secondary{
+  border-color:var(--border-strong);
+  background:rgba(255,255,255,.08)
+}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.tag{
+  display:inline-flex;
+  align-items:center;
+  padding:4px 10px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:700;
+  background:rgba(139,94,60,.12);
+  color:var(--accent)
+}
+
+.theme-control{position:relative;z-index:40}
+.theme-launch{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:148px;
+  padding:10px 14px;
+  border-radius:12px;
+  border:1px solid var(--border-strong);
+  background:var(--panel-soft);
+  color:var(--text);
+  font:600 13px/1.2 Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+  cursor:pointer;
+  box-shadow:none
+}
+.theme-widget{
+  position:fixed;
+  top:72px;
+  right:24px;
+  width:320px;
+  max-width:min(320px,calc(100vw - 24px));
+  z-index:99999;
+  pointer-events:auto
+}
+.theme-widget[hidden]{display:none !important}
+.theme-widget-body{
+  padding:16px;
+  border-radius:16px;
+  border:1px solid var(--border-strong);
+  background:var(--panel-strong);
+  box-shadow:var(--shadow)
+}
+.theme-widget-body h3{margin:0 0 12px;font-size:16px}
+.theme-row{display:grid;gap:6px;margin-bottom:12px}
+.theme-row label{
+  font-size:12px;
+  font-weight:600;
+  color:var(--muted);
+  text-transform:uppercase
+}
+.theme-row select,
+.theme-row input,
+.theme-btn-row button{
+  font:500 13px/1.2 Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+  color:var(--text)
+}
+.theme-row select{
+  padding:10px 12px;
+  border-radius:10px;
+  border:1px solid var(--border-strong);
+  background:var(--panel-soft)
+}
+.theme-row input[type='color']{
+  width:100%;
+  height:42px;
+  padding:4px;
+  border-radius:10px;
+  border:1px solid var(--border-strong);
+  background:var(--panel-soft)
+}
+.theme-inline{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.theme-btn-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.theme-btn-row button{
+  padding:10px 12px;
+  border-radius:10px;
+  border:1px solid var(--border-strong);
+  background:var(--panel-soft);
+  cursor:pointer
+}
+
+@media(max-width:1080px){
+  .span-7,.span-5,.span-4,.span-3{grid-column:span 12}
+  .kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .metrics-strip{grid-template-columns:1fr}
+  .table-tools .summary{margin-left:0;width:100%}
+}
+@media(max-width:720px){
+  .kpi-grid{grid-template-columns:1fr}
+  .kv-table col.kv-key{width:42%}
+  .kv-table col.kv-value{width:58%}
+}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <div class="hero-head">
+        <div class="hero-copy">
+          <h1>designs_rns_crt — clk_10p125ns_attempt_01</h1>
+          <p>Enriched per-run detail page with timing, physical, power, signoff, and download links.</p>
+          <p><strong>Snapshot:</strong> 23072642525 · <strong>Path:</strong> /runs/23072642525/index.html</p>
+        </div>
+        
+<div class="theme-control">
+  <button class="theme-launch" id="runAppearanceButton" type="button" aria-expanded="false" aria-controls="runThemeWidget">Appearance ⚙️</button>
+  <div class="theme-widget" id="runThemeWidget" hidden>
+    <div class="theme-widget-body">
+      <h3>Appearance</h3>
+      <div class="theme-row"><label for="runThemeWidget_preset">Theme preset</label><select id="runThemeWidget_preset"><option value="canvas">Canvas Beige</option><option value="forest">Forest</option><option value="slate">Slate</option></select></div>
+      <div class="theme-inline">
+        <div class="theme-row"><label for="runThemeWidget_bg">Base background</label><input type="color" id="runThemeWidget_bg" value="#f4ecdf"></div>
+        <div class="theme-row"><label for="runThemeWidget_accent">Accent</label><input type="color" id="runThemeWidget_accent" value="#8b5e3c"></div>
+      </div>
+      <div class="theme-inline">
+        <div class="theme-row"><label for="runThemeWidget_grad1">Gradient 1</label><input type="color" id="runThemeWidget_grad1" value="#f8f1e7"></div>
+        <div class="theme-row"><label for="runThemeWidget_grad2">Gradient 2</label><input type="color" id="runThemeWidget_grad2" value="#efe4d3"></div>
+      </div>
+      <div class="theme-btn-row"><button id="runThemeWidget_save" type="button">Save</button><button id="runThemeWidget_reset" type="button">Reset</button></div>
+    </div>
+  </div>
+</div>
+
+      </div>
+    </section>
+
+    <div class="grid">
+      <section class="card span-5">
+        <h2>Run status</h2>
+        <p><span class="badge flow">FLOW_FAIL</span></p>
+        <p><strong>Remarks:</strong> Flow failed before valid timing metrics were produced.</p>
+        <p><a class="btn secondary" href="../../index.html">Back to ASIC Flow Run Explorer</a></p>
+      </section>
+
+      <section class="card span-7">
+        <h2>Download &amp; Tools</h2>
+        <div class="actions"><a class="btn secondary" href="https://gds-viewer.tinytapeout.com/" target="_blank" rel="noopener noreferrer">Open GDS Viewer</a><a class="btn secondary" href="metrics.csv">Open metrics.csv</a></div>
+      </section>
+
+      <section class="card span-12"><div class="metrics-strip"><section class="metric-group table-card"><div class="table-head"><h3>Failure diagnostic</h3></div><div class="kv-wrap"><table class="kv-table"><colgroup><col class="kv-key"><col class="kv-value"></colgroup><tr><th>Field</th><th>Value</th></tr><tr><td>Primary reason</td><td>OpenLane exited with code 2 and no valid timing metrics were produced.</td></tr><tr><td>Likely failing phase</td><td>metrics-extraction-or-incomplete-run</td></tr><tr><td>OpenLane return code</td><td>2</td></tr><tr><td>Config generation return code</td><td>0</td></tr><tr><td>Config generated</td><td>yes</td></tr><tr><td>OpenLane invoked</td><td>yes</td></tr><tr><td>Run directory found</td><td>yes</td></tr><tr><td>metrics.csv present</td><td>yes</td></tr><tr><td>metrics_raw.json present</td><td>no</td></tr><tr><td>Valid timing present</td><td>no</td></tr><tr><td>GDS present</td><td>no</td></tr><tr><td>Render present</td><td>no</td></tr><tr><td>OpenLane run copied</td><td>yes</td></tr><tr><td>Viewer HTML present</td><td>yes</td></tr></table></div></section></div></section>
+
+      <section class="card span-12">
+        <h2>Metrics by category</h2>
+        <div class="metrics-strip">
+          <section class="metric-group table-card"><div class="table-head"><h3>Timing</h3></div><div class="kv-wrap"><table class="kv-table"><colgroup><col class="kv-key"><col class="kv-value"></colgroup><tr><th>Field</th><th>Value</th></tr><tr><td>Clock requested</td><td>10.125 ns</td></tr><tr><td>Clock reported</td><td> ns</td></tr><tr><td>Setup WNS</td><td> ns</td></tr><tr><td>Setup TNS</td><td> ns</td></tr><tr><td>Hold WNS</td><td> ns</td></tr><tr><td>Hold TNS</td><td> ns</td></tr></table></div></section>
+          <section class="metric-group table-card"><div class="table-head"><h3>Physical</h3></div><div class="kv-wrap"><table class="kv-table"><colgroup><col class="kv-key"><col class="kv-value"></colgroup><tr><th>Field</th><th>Value</th></tr><tr><td>Core area</td><td>—</td></tr><tr><td>Die area</td><td>—</td></tr><tr><td>Instances</td><td>—</td></tr><tr><td>Utilization</td><td>—</td></tr><tr><td>Wire length</td><td>—</td></tr><tr><td>Vias</td><td>—</td></tr></table></div></section>
+          <section class="metric-group table-card"><div class="table-head"><h3>Power (W)</h3></div><div class="kv-wrap"><table class="kv-table"><colgroup><col class="kv-key"><col class="kv-value"></colgroup><tr><th>Field</th><th>Value</th></tr><tr><td>Total</td><td>—</td></tr><tr><td>Internal</td><td>—</td></tr><tr><td>Switching</td><td>—</td></tr><tr><td>Leakage</td><td>—</td></tr><tr><td>Source</td><td>—</td></tr><tr><td>FAIR STA rpt</td><td>—</td></tr></table></div></section>
+          <section class="metric-group table-card"><div class="table-head"><h3>Signoff</h3></div><div class="kv-wrap"><table class="kv-table"><colgroup><col class="kv-key"><col class="kv-value"></colgroup><tr><th>Field</th><th>Value</th></tr><tr><td>DRC</td><td>—</td></tr><tr><td>KLayout DRC</td><td>—</td></tr><tr><td>Magic DRC</td><td>—</td></tr><tr><td>LVS</td><td>—</td></tr><tr><td>Antenna</td><td>—</td></tr><tr><td>Worst IR drop</td><td>—</td></tr></table></div></section>
+          
+        </div>
+      </section>
+
+      
+
+      <section class="card span-12 table-card">
+        <div class="table-head"><h2>Metadata</h2></div>
+        <div class="kv-wrap">
+          <table class="kv-table">
+            <colgroup><col class="kv-key"><col class="kv-value"></colgroup>
+            <tr><th>Field</th><th>Value</th></tr>
+            <tr><td>Variant</td><td>designs_rns_crt</td></tr><tr><td>Snapshot run ID</td><td>23072642525</td></tr><tr><td>Repository</td><td>kierancyh/ASIC-Flow-Toolchain</td></tr><tr><td>Run folder</td><td>clk_10p125ns_attempt_01</td></tr><tr><td>Artifact label</td><td>0p125ns-designs_rns_crt</td></tr><tr><td>Stage label</td><td>0.125 ns</td></tr><tr><td>Attempt number</td><td>1</td></tr><tr><td>GitHub run ID</td><td>23072642525</td></tr><tr><td>Synthesis override</td><td>—</td></tr><tr><td>OpenLane run copied</td><td>yes</td></tr><tr><td>metrics_raw.json present</td><td>no</td></tr><tr><td>Raw metric count</td><td>0</td></tr><tr><td>Failure summary present</td><td>yes</td></tr><tr><td>Likely failure phase</td><td>metrics-extraction-or-incomplete-run</td></tr><tr><td>Status</td><td>FLOW_FAIL</td></tr><tr><td>Remarks</td><td>Flow failed before valid timing metrics were produced.</td></tr>
+          </table>
+        </div>
+      </section>
+    </div>
+  </div>
+  
+<script>
+(function () {
+  const root = document.documentElement;
+  const button = document.getElementById("runAppearanceButton");
+  const panel = document.getElementById("runThemeWidget");
+  if (!root || !button || !panel) return;
+  document.body.appendChild(panel);
+  const presetTheme = document.getElementById("runThemeWidget_preset");
+  const bgColor = document.getElementById("runThemeWidget_bg");
+  const accentColor = document.getElementById("runThemeWidget_accent");
+  const grad1 = document.getElementById("runThemeWidget_grad1");
+  const grad2 = document.getElementById("runThemeWidget_grad2");
+  const saveTheme = document.getElementById("runThemeWidget_save");
+  const resetTheme = document.getElementById("runThemeWidget_reset");
+  const presets = {
+    canvas: {"--bg":"#f4ecdf","--bg-grad-1":"#f8f1e7","--bg-grad-2":"#efe4d3","--accent":"#8b5e3c","--accent-2":"#b6845e"},
+    forest: {"--bg":"#e9efe7","--bg-grad-1":"#f3f7f1","--bg-grad-2":"#d9e7d5","--accent":"#4f7a5c","--accent-2":"#789d83"},
+    slate: {"--bg":"#e7ebf0","--bg-grad-1":"#f3f6fa","--bg-grad-2":"#d7dde6","--accent":"#496a8a","--accent-2":"#7292b0"}
+  };
+  function applyVars(vars) { Object.entries(vars).forEach(([k,v]) => root.style.setProperty(k, v)); }
+  function syncInputsFromCurrentTheme() {
+    const styles = getComputedStyle(root);
+    bgColor.value = styles.getPropertyValue("--bg").trim() || bgColor.value;
+    grad1.value = styles.getPropertyValue("--bg-grad-1").trim() || grad1.value;
+    grad2.value = styles.getPropertyValue("--bg-grad-2").trim() || grad2.value;
+    accentColor.value = styles.getPropertyValue("--accent").trim() || accentColor.value;
+  }
+  function saveSettings() { localStorage.setItem("asic-flow-theme", JSON.stringify({preset:presetTheme.value,bg:bgColor.value,grad1:grad1.value,grad2:grad2.value,accent:accentColor.value})); }
+  function loadSettings() {
+    const raw = localStorage.getItem("asic-flow-theme");
+    if (!raw) {
+      presetTheme.value = "canvas";
+      applyVars(presets.canvas);
+      syncInputsFromCurrentTheme();
+      return;
+    }
+    try {
+      const s = JSON.parse(raw);
+      const preset = (s.preset && presets[s.preset]) ? s.preset : "canvas";
+      presetTheme.value = preset;
+      applyVars(presets[preset]);
+      if (s.bg) bgColor.value = s.bg;
+      if (s.grad1) grad1.value = s.grad1;
+      if (s.grad2) grad2.value = s.grad2;
+      if (s.accent) accentColor.value = s.accent;
+      applyVars({"--bg":bgColor.value,"--bg-grad-1":grad1.value,"--bg-grad-2":grad2.value,"--accent":accentColor.value,"--accent-2":accentColor.value});
+    } catch (e) {
+      presetTheme.value = "canvas";
+      applyVars(presets.canvas);
+    }
+    syncInputsFromCurrentTheme();
+  }
+  function positionPanel() {
+    if (panel.hidden) return;
+    const rect = button.getBoundingClientRect();
+    const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+    const margin = 12;
+    const w = Math.min(340, Math.max(260, vw - (margin * 2)));
+    panel.style.width = w + "px";
+    panel.style.maxWidth = w + "px";
+    const h = panel.offsetHeight || 320;
+    let left = rect.right - w;
+    left = Math.max(margin, Math.min(left, vw - w - margin));
+    let top = rect.bottom + 12;
+    if (top + h > vh - margin) top = Math.max(margin, rect.top - h - 12);
+    panel.style.left = left + "px";
+    panel.style.top = top + "px";
+  }
+  function openPanel() { panel.hidden = false; button.setAttribute("aria-expanded", "true"); positionPanel(); }
+  function closePanel() { panel.hidden = true; button.setAttribute("aria-expanded", "false"); }
+  button.addEventListener("click", function (e) { e.stopPropagation(); if (panel.hidden) openPanel(); else closePanel(); });
+  panel.addEventListener("click", function (e) { e.stopPropagation(); });
+  document.addEventListener("click", function () { closePanel(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closePanel(); });
+  window.addEventListener("resize", function () { if (!panel.hidden) positionPanel(); });
+  window.addEventListener("scroll", function () { if (!panel.hidden) positionPanel(); }, true);
+  presetTheme.addEventListener("change", function () {
+    if (presets[presetTheme.value]) {
+      applyVars(presets[presetTheme.value]);
+      syncInputsFromCurrentTheme();
+      saveSettings();
+    }
+  });
+  [bgColor, grad1, grad2, accentColor].forEach(el => el.addEventListener("input", function () {
+    applyVars({"--bg":bgColor.value,"--bg-grad-1":grad1.value,"--bg-grad-2":grad2.value,"--accent":accentColor.value,"--accent-2":accentColor.value});
+    saveSettings();
+  }));
+  saveTheme.addEventListener("click", saveSettings);
+  resetTheme.addEventListener("click", function () {
+    localStorage.removeItem("asic-flow-theme");
+    presetTheme.value = "canvas";
+    applyVars(presets.canvas);
+    syncInputsFromCurrentTheme();
+    closePanel();
+  });
+  loadSettings();
+  closePanel();
+})();
+</script>
+
+</body>
+</html>
