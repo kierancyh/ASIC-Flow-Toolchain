@@ -948,6 +948,15 @@ jobs:
           COUNT="$(find downloaded_artifacts -type f -name metrics.csv | wc -l | tr -d ' ')"
           echo "Found ${COUNT} metrics.csv files"
           test "${COUNT}" != "0"
+      - name: Syntax check critical Python scripts
+        run: |
+          python -m py_compile \
+            tools/scripts/autoflow.py \
+            tools/scripts/compare_runs.py \
+            tools/scripts/select_clock_bracket.py \
+            tools/scripts/make_clock_matrix.py \
+            tools/scripts/read_start_clock.py \
+            tools/scripts/gen_config.py
       - name: Compare runs and build explorer
         run: |
           python tools/scripts/compare_runs.py \
@@ -959,11 +968,6 @@ jobs:
             --site-dir _site \
             --repo-slug "${{ github.repository }}" \
             --run-id "${{ github.run_id }}" \
-            --summary-synth-strategy "${{ needs.plan.outputs.summary_synth_strategy }}" \
-            --summary-antenna-repair "${{ needs.plan.outputs.summary_antenna_repair }}" \
-            --summary-heuristic-diode-insertion "${{ needs.plan.outputs.summary_heuristic_diode_insertion }}" \
-            --summary-post-grt-design-repair "${{ needs.plan.outputs.summary_post_grt_design_repair }}" \
-            --summary-post-grt-resizer-timing "${{ needs.plan.outputs.summary_post_grt_resizer_timing }}" \
             --summary-synth-strategy "${{ needs.plan.outputs.summary_synth_strategy }}" \
             --summary-antenna-repair "${{ needs.plan.outputs.summary_antenna_repair }}" \
             --summary-heuristic-diode-insertion "${{ needs.plan.outputs.summary_heuristic_diode_insertion }}" \
