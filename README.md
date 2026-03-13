@@ -412,44 +412,38 @@ This should include all required Verilog files for the top module.
 ## How to: Run the Workflow
 
 This repository supports two normal ways to run the flow:
-
 - **Automatic run on push**
 - **Manual run from GitHub Actions**
 
 In both cases, the workflow:
-- selects a design variant
-- runs the staged clock search
-- uploads per-run artifacts
-- compares all collected runs
-- publishes the Run Explorer if the compare stage succeeds
+- Selects a design variant
+- Runs the staged clock search
+- Uploads per-run artifacts
+- Compares all collected runs
+- Publishes the Run Explorer if the compare stage succeeds
 
 ### Option 1: Automatic run on push
 
-This is the normal way to use the repo.
-
-After you:
-1. create the new design under `designs/<variant_name>/`
-2. fill in `variant.yaml`
-3. register it in `manifest.yaml`
-4. commit and push to `main`
-
-the workflow starts automatically.
+This is the normal way to use the repository:
+1. Create the new design under `designs/<variant_name>/`
+2. Fill in `variant.yaml`
+3. Register it in `manifest.yaml`
+4. Commit and push to `main` and the workflow starts automatically.
 
 Use this when:
-- you want the repo to use its normal default behavior
-- you are testing the currently enabled manifest design
-- you do not need to override any workflow inputs manually
+- Repository to use its normal default behavior
+- Testing the currently enabled manifest design
+- Do not need to override any workflow inputs manually
 
 ### Option 2: Manual run from GitHub Actions
 
 Use manual dispatch when you want to:
-- rerun the flow without making a new commit
-- test a specific registered variant
-- change the timing search step sizes for an experiment
-- temporarily override synthesis or repair options
+- Rerun the flow without making a new commit
+- Test a specific registered variant
+- Change the timing search step sizes for an experiment
+- Temporarily override synthesis or repair options
 
 To run it manually:
-
 1. Open the repository on GitHub
 2. Click **Actions**
 3. Select **ASIC Flow**
@@ -461,8 +455,7 @@ To run it manually:
 ### Typical manual test settings
 
 For a normal first test, use:
-
-```text
+```
 variant: designs_my_alu
 min_clock_ns: 0
 initial_step_ns: 20
@@ -476,6 +469,7 @@ run_antenna_repair: true
 run_heuristic_diode_insertion: true
 run_post_grt_design_repair: true
 run_post_grt_resizer_timing: false
+```
 
 ---
 
