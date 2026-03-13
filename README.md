@@ -11,7 +11,7 @@ This repository is intended to be a:
 - **Variant-driven ASIC research workflow**
 - **Repeatable GitHub Actions pipeline** for OpenLane2 / LibreLane on Sky130
 - **Run-comparison framework** that keeps all tested timing points visible
-- a **documentation-friendly evidence generator** for metrics, artifacts, failure diagnostics, and GitHub Pages summaries
+- **Documentation-friendly evidence generator** for metrics, artifacts, failure diagnostics, and GitHub Pages summaries
 
 ---
 
@@ -136,7 +136,7 @@ After the final refinement stage, the workflow:
 
 ---
 
-## Current workflow stages
+## Workflow stages
 
 ```text
 plan
@@ -258,7 +258,7 @@ This helps explain how the next refinement matrix was chosen.
 
 To test a new design, add a new variant directory under `designs/`.
 
-### Step 1: create a variant folder
+### Step 1: Create a Variant Folder
 
 Example:
 
@@ -271,11 +271,11 @@ designs/my_alu/
    └─ submodule_b.v
 ```
 
-### Step 2: place all Verilog sources under `src/`
+### Step 2: Place all Verilog Sources under `src/`
 
 Use a clean source tree and include all RTL files needed by the selected top module.
 
-### Step 3: write `variant.yaml`
+### Step 3: Write `variant.yaml`
 
 An example of a filled template is:
 
@@ -305,7 +305,7 @@ fp:
   core_util: 10
 ```
 
-### Step 4: register it in `manifest.yaml`
+### Step 4: Register it in `manifest.yaml`
 
 Example:
 
@@ -322,13 +322,13 @@ experiments:
 
 If more than one experiment is listed, only enable the one you currently want as the default, unless you are intentionally changing manifest selection behavior.
 
-### Step 5: commit and push
+### Step 5: Commit and Push
 
 Pushing to `main` triggers the workflow. You can also use **workflow_dispatch** from GitHub Actions and optionally provide a specific variant plus timing-step overrides.
 
 ---
 
-## How to fill in `variant.yaml`
+## How to: Fill in `variant.yaml`
 
 This section is the main user guide for preparing a design variant.
 
@@ -406,6 +406,70 @@ sources:
 ```
 
 This should include all required Verilog files for the top module.
+
+---
+
+## How to: Run the Workflow
+
+This repository supports two normal ways to run the flow:
+- **Automatic run on push**
+- **Manual run from GitHub Actions**
+
+In both cases, the workflow:
+- Selects a design variant
+- Runs the staged clock search
+- Uploads per-run artifacts
+- Compares all collected runs
+- Publishes the Run Explorer if the compare stage succeeds
+
+### Option 1: Automatic run on push
+
+This is the normal way to use the repository:
+1. Create the new design under `designs/<variant_name>/`
+2. Fill in `variant.yaml`
+3. Register it in `manifest.yaml`
+4. Commit and push to `main` and the workflow starts automatically.
+
+Use this when:
+- Repository to use its normal default behavior
+- Testing the currently enabled manifest design
+- Do not need to override any workflow inputs manually
+
+### Option 2: Manual run from GitHub Actions
+
+Use manual dispatch when you want to:
+- Rerun the flow without making a new commit
+- Test a specific registered variant
+- Change the timing search step sizes for an experiment
+- Temporarily override synthesis or repair options
+
+To run it manually:
+1. Open the repository on GitHub
+2. Click **Actions**
+3. Select **ASIC Flow**
+4. Click **Run workflow**
+5. Choose the branch, usually `main`
+6. Fill in any inputs you want to override
+7. Click **Run workflow**
+
+### Typical manual test settings
+
+For a normal first test, use:
+```
+variant: designs_my_alu
+min_clock_ns: 0
+initial_step_ns: 20
+mid_refine_step_ns: 5.0
+refine1_step_ns: 1.0
+refine2_step_ns: 0.5
+refine3_step_ns: 0.125
+tolerance_ns: 0.125
+synth_strategy: leave blank
+run_antenna_repair: true
+run_heuristic_diode_insertion: true
+run_post_grt_design_repair: true
+run_post_grt_resizer_timing: false
+```
 
 ---
 
@@ -557,8 +621,8 @@ Common timing fields include:
 - Hold WNS / TNS
 
 Note:
-**Non-negative setup WNS** - Generally what you want for a timing-clean result
-**Large negative WNS or TNS** - Indicates the chosen clock is too aggressive
+- **Non-negative setup WNS** - Generally what you want for a timing-clean result
+- **Large negative WNS or TNS** - Indicates the chosen clock is too aggressive
 
 ### Physical Metrics
 Typical fields include:
