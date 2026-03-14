@@ -1,0 +1,29 @@
+{
+  "variant": "designs_rns_crt",
+  "stage_label": "5 ns",
+  "clock_ns": 10.0,
+  "attempt": 1,
+  "github_run_id": "23085608461",
+  "github_run_number": "74",
+  "commit_sha": "36f1e4b88d29fa51aad04343ce5e7d218deb48c3",
+  "status": "FLOW_FAIL",
+  "reason": "OpenLane exited with code 2 and no valid timing metrics were produced.",
+  "config_generation_rc": 0,
+  "openlane_rc": 2,
+  "run_dir": "/home/runner/work/ASIC-Flow-Toolchain/ASIC-Flow-Toolchain/runs/RUN_2026-03-14_10-02-57",
+  "checks": {
+    "config_generated": true,
+    "config_generation_rc": 0,
+    "openlane_invoked": true,
+    "openlane_rc": 2,
+    "run_dir_found": true,
+    "metrics_csv_present": true,
+    "metrics_raw_present": false,
+    "timing_present": false,
+    "gds_present": false,
+    "render_present": false,
+    "openlane_run_present": true,
+    "viewer_present": true
+  },
+  "likely_failure_phase": "metrics-extraction-or-incomplete-run"
+}
