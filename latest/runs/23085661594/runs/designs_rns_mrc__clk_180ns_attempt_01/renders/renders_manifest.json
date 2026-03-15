@@ -1,7 +1,0 @@
-{
-  "gds": "/home/runner/work/ASIC-Flow-Toolchain/ASIC-Flow-Toolchain/runs/RUN_2026-03-14_10-34-05/final/gds/rns_top_mrc.gds",
-  "renderer": "unavailable",
-  "renders": [],
-  "status": "SKIPPED",
-  "reason": "klayout executable not found; render step skipped by design"
-}
