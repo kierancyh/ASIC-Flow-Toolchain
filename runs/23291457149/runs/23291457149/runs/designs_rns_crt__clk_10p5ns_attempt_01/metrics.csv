@@ -1,0 +1,2 @@
+clock_ns,clock_ns_reported,setup_wns_ns,setup_tns_ns,hold_wns_ns,hold_tns_ns,core_area_um2,die_area_um2,instance_count,utilization_pct,wire_length_um,vias_count,power_total_W,power_internal_W,power_switching_W,power_leakage_W,power_source,drc_errors,drc_errors_klayout,drc_errors_magic,lvs_errors,antenna_violations,antenna_violating_nets,antenna_violating_pins,ir_drop_worst_V,power_fair_sta_rpt,status
+10.5,,0,0,0,0,175921,190617,5302,0.133597,46910,14183,0.09149637818336487,,,,metrics.json,0,0,0,0,0,0,0,0.0384,,PASS
