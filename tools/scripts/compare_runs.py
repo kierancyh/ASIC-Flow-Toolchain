@@ -422,7 +422,7 @@ def write_summary_md(path: Path, rows: List[Dict[str, str]]) -> None:
             "",
         ]
     lines += [
-        "## All runs",
+        "## Run Comparison Table",
         "",
         "| Variant | Run | Clock (ns) | Setup WNS | Setup TNS | Core area | Power total | DRC | LVS | Antenna | Status | Remarks |",
         "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
@@ -843,6 +843,7 @@ a{color:var(--accent);text-decoration:none}
 }
 .metric-group h3{margin:0;font-size:15px}
 .table-card{padding:0;overflow:hidden}
+.homepage-table-card{margin-top:18px}
 .table-head{
   display:flex;
   justify-content:space-between;
@@ -1547,7 +1548,7 @@ a{color:var(--accent);text-decoration:none}
     if best:
         best_text = (
             '<section class="card span-7">'
-            "<h2>Chosen best run</h2>"
+            "<h2>Best Run</h2>"
             f"<p><strong>Run:</strong> {html.escape(str(best.get('_variant', '')))} / "
             f"{html.escape(str(best.get('_run_dir', '')))}</p>"
             f"<p><strong>Clock:</strong> {html.escape(str(best.get('clock_ns', '')))} ns</p>"
@@ -1579,7 +1580,7 @@ a{color:var(--accent);text-decoration:none}
 
     <div class="grid">
       <section class="card span-5">
-        <h2>Selection order</h2>
+        <h2>Selection Criteria</h2>
         <ol>
           <li>Clean signoff plus non-negative setup timing wins.</li>
           <li>If no full PASS exists, clean signoff wins over signoff violations.</li>
@@ -1591,7 +1592,7 @@ a{color:var(--accent);text-decoration:none}
       {best_text}
 
       <section class="card span-12">
-        <h2>Run overview</h2>
+        <h2>Run Overview</h2>
         <div class="kpi-grid">
           <div class="stat">
             <div class="label">Total runs</div>
@@ -1614,7 +1615,8 @@ a{color:var(--accent);text-decoration:none}
     </div>
 
     <section class="card table-card">
-      <div class="table-head"><h2>All runs</h2><span>Top row is the selected best run</span></div>
+    <section class="card table-card homepage-table-card">
+      <div class="table-head"><h2>Run Comparison Table</h2><span>Top row is the selected best run</span></div>
       <div class="table-tools">
         <label>Status
           <select id="statusFilter">
