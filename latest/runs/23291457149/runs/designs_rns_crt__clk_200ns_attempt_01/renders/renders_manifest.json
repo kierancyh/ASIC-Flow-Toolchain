@@ -1,7 +1,0 @@
-{
-  "gds": "/home/runner/work/LibreLane-Sky130-ASIC-Toolchain/LibreLane-Sky130-ASIC-Toolchain/runs/RUN_2026-03-19_10-55-11/final/gds/rns_top_crt.gds",
-  "renderer": "unavailable",
-  "renders": [],
-  "status": "SKIPPED",
-  "reason": "klayout executable not found; render step skipped by design"
-}

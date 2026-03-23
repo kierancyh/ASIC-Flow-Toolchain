@@ -1,0 +1,29 @@
+{
+  "variant": "designs_rns_crt",
+  "stage_label": "1.0 ns",
+  "clock_ns": 14.0,
+  "attempt": 1,
+  "github_run_id": "23461810178",
+  "github_run_number": "78",
+  "commit_sha": "5ddcc20f8a6f139fa7205a5dc1348fd254e4e970",
+  "status": "FLOW_FAIL",
+  "reason": "Metrics were incomplete for run dir /home/runner/work/LibreLane-Sky130-ASIC-Toolchain/LibreLane-Sky130-ASIC-Toolchain/runs/RUN_2026-03-23_22-04-33 (rc=0).",
+  "config_generation_rc": 0,
+  "openlane_rc": 0,
+  "run_dir": "/home/runner/work/LibreLane-Sky130-ASIC-Toolchain/LibreLane-Sky130-ASIC-Toolchain/runs/RUN_2026-03-23_22-04-33",
+  "checks": {
+    "config_generated": true,
+    "config_generation_rc": 0,
+    "openlane_invoked": true,
+    "openlane_rc": 0,
+    "run_dir_found": true,
+    "metrics_csv_present": true,
+    "metrics_raw_present": true,
+    "timing_present": true,
+    "gds_present": true,
+    "render_present": false,
+    "openlane_run_present": true,
+    "viewer_present": true
+  },
+  "likely_failure_phase": "flow-failed-before-final-signoff"
+}
